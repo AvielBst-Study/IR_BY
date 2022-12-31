@@ -1,3 +1,4 @@
 
 *.xml
 .idea/IR_BY.iml
+*.pyc
