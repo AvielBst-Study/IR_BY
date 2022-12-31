@@ -13,10 +13,13 @@ import pickle
 from google.cloud import storage
 from collections import defaultdict
 from contextlib import closing
+import gcsfs
 
 
 # Let's start with a small block size of 30 bytes just to test things out. 
 BLOCK_SIZE = 1999998
+BUCKET_NAME = "206224503_ir_hw3"
+
 
 class MultiFileWriter:
     """ Sequential binary writer to multiple files of up to BLOCK_SIZE each. """
@@ -63,12 +66,14 @@ class MultiFileReader:
     """ Sequential binary reader of multiple files of up to BLOCK_SIZE each. """
     def __init__(self):
         self._open_files = {}
+        self.GCSFS = gcsfs.GCSFileSystem()
 
     def read(self, locs, n_bytes):
         b = []
         for f_name, offset in locs:
             if f_name not in self._open_files:
-                self._open_files[f_name] = open(f_name, 'rb')
+                self._open_files[f_name] = self.GCSFS.open(f"gs://{BUCKET_NAME}/postings_gcp/{f_name}", "rb")
+                # self._open_files[f_name] = open(f_name, 'rb')
             f = self._open_files[f_name]
             f.seek(offset)
             n_read = min(n_bytes, BLOCK_SIZE - offset)
