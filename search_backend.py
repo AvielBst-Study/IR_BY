@@ -28,6 +28,8 @@ class BackEnd:
         self.read_index(path)
         with self.GCSFS.open(r"gs://ir_training_index/doc_dl_dict.pickle", "rb") as f:
             self.DL = pickle.load(f)
+        with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
+            self.doc_title_dict = pickle.load(f)
 
 
     def get_train_query_terms(self):
@@ -265,39 +267,35 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         # Get iterator to work with posting lists
-        t = datetime.datetime.now()
         print('getting posting iter')
+        t1 = datetime.datetime.now()
         words, pls = self.inverted.get_posting_iter(index)
-        print(datetime.datetime.now() - t)
+        print(f"get_posting_iter took {datetime.datetime.now()-t1}")
         retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
-            print('Calculating D')
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
-            print(datetime.datetime.now() - t)
-            print('Calculating vect_query')
+            if len(D) == 0:
+                return retrieved_docs
             vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
-            print(datetime.datetime.now() - t)
-
             # Calculate Cos-Similarity for given query
-            print('Getting top docs')
-            x = dict(list(zip(D.index, cosine_similarity(D, vect_query))))
-
-            retrieved_docs[query_id] = self.get_top_n(x, N)
-        print(datetime.datetime.now() - t)
+            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(D.index, cosine_similarity(D, vect_query)))), N)
 
         return retrieved_docs
 
-    def activate_search(self, query, N=3):
-        return self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
+    def activate_search(self, query, N=20):
+        doc_score_dic = self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
+        # return doc_score_dic
+        return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
 
 
 def main():
     operator = BackEnd(r"hw3_index.pkl")
     # Generate a random query
     possible_query_terms = operator.get_train_query_terms()
-    query = random.sample(possible_query_terms, 3)
-
-    operator.activate_search(query)
+    t1 = datetime.datetime.now()
+    query = random.sample(possible_query_terms, 8)
+    result = operator.activate_search(query)
+    print(f"Query: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:\n    {result}")
 
 
 if __name__ == '__main__':

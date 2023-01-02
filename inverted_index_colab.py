@@ -166,7 +166,6 @@ class InvertedIndex:
     for p in Path(base_dir).rglob(f'{name}_*.bin'):
       p.unlink()
 
-
   @staticmethod
   def write_a_posting_list(b_w_pl):
     ''' Takes a (bucket_id, [(w0, posting_list_0), (w1, posting_list_1), ...]) 
