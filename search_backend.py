@@ -12,7 +12,7 @@ import numpy as np
 import math
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
-
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 # TODO NEED TO FIX INDEX.PKL - IT HAS NO TOTAL_TERM FIELD
 # TODO ADD TITLES TO POSTING LISTS SO IT WILL BE EASY TO PULL WHEN NEW QUERY ARRIVES
@@ -26,7 +26,11 @@ class BackEnd:
         self.inverted = InvertedIndex()
         self.bucket_name = "206224503_ir_hw3"
         self.read_index(path)
-        self.DL = {}
+        with self.GCSFS.open(r"gs://ir_training_index/doc_dl_dict.pickle", "rb") as f:
+            self.DL = pickle.load(f)
+        with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
+            self.doc_title_dict = pickle.load(f)
+
 
     def get_train_query_terms(self):
         """
@@ -66,7 +70,7 @@ class BackEnd:
         with open(index_file, 'rb') as f:
             data = pickle.load(f)
         self.inverted.df = data.df
-        self.inverted.term_total = len(data.posting_locs)
+        self.inverted.term_total = data.posting_locs
         self.inverted.posting_locs = data.posting_locs
 
     @staticmethod
@@ -103,7 +107,7 @@ class BackEnd:
         a ranked list of pairs (doc_id, score) in the length of N.
         """
 
-        return sorted([(doc_id, round(score, 5)) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
+        return sorted([(doc_id, round(score[0], 5)) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
                       reverse=True)[:N]
 
     def generate_query_tfidf_vector(self, query_to_search, index):
@@ -171,7 +175,7 @@ class BackEnd:
         for term in np.unique(query_to_search):
             if term in words:
                 list_of_doc = pls[words.index(term)]
-                normlized_tfidf = [(doc_id, (freq / self.DL[str(doc_id)]) * math.log(len(self.DL) / index.df[term], 10))
+                normlized_tfidf = [(doc_id, (freq / self.DL[doc_id]) * math.log(len(self.DL) / index.df[term], 10))
                                    for doc_id, freq in list_of_doc]
 
                 for doc_id, tfidf in normlized_tfidf:
@@ -263,37 +267,35 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         # Get iterator to work with posting lists
-        t = datetime.datetime.now()
         print('getting posting iter')
+        t1 = datetime.datetime.now()
         words, pls = self.inverted.get_posting_iter(index)
-        print(datetime.datetime.now() - t)
+        print(f"get_posting_iter took {datetime.datetime.now()-t1}")
         retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
-            print('Calculating D')
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
-            print(datetime.datetime.now() - t)
-            print('Calculating vect_query')
-            vect_query = self.generate_query_tfidf_vector(tokens, index)
-            print(datetime.datetime.now() - t)
-
+            if len(D) == 0:
+                return retrieved_docs
+            vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
             # Calculate Cos-Similarity for given query
-            print('Getting top docs')
-            retrieved_docs[query_id] = self.get_top_n(cosine_similarity(D, vect_query), N)
-        print(datetime.datetime.now() - t)
+            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(D.index, cosine_similarity(D, vect_query)))), N)
 
         return retrieved_docs
 
-    def activate_search(self, query, N=3):
-        return self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
+    def activate_search(self, query, N=20):
+        doc_score_dic = self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
+        # return doc_score_dic
+        return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
 
 
 def main():
-    operator = BackEnd(r"index.pkl")
+    operator = BackEnd(r"hw3_index.pkl")
     # Generate a random query
     possible_query_terms = operator.get_train_query_terms()
-    query = random.sample(possible_query_terms, 3)
-
-    operator.activate_search(query)
+    t1 = datetime.datetime.now()
+    query = random.sample(possible_query_terms, 8)
+    result = operator.activate_search(query)
+    print(f"Query: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:\n    {result}")
 
 
 if __name__ == '__main__':
