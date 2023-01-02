@@ -208,8 +208,6 @@ class BackEnd:
         -----------
         DataFrame of tfidf scores.
         """
-
-        
         print('got here')
 
         total_vocab_size = len(index.term_total)
@@ -217,11 +215,10 @@ class BackEnd:
 
         candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
         t = datetime.datetime.now()
-        D = lil_matrix((len(candidates_scores), total_vocab_size))
+        D = lil_matrix((self.max_doc, total_vocab_size))
         print(f'creating the lil took:{datetime.datetime.now()}')
         candidates_id = list()
         cloumns_dict = {term: idx for idx, term in enumerate(index.term_total)}
-        # cnadidates_dict = {} #maps from idnex to candidate doc_id
 
         for key in candidates_scores:
             tfidf = candidates_scores[key]
@@ -229,6 +226,9 @@ class BackEnd:
 
             candidates_id.append(doc_id)
             D[doc_id,term] = tfidf
+            
+
+
 
         return D,candidates_id
 
