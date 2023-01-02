@@ -14,9 +14,13 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+
+from scipy.sparse import csr_matrix,lil_matrix
 # TODO NEED TO FIX INDEX.PKL - IT HAS NO TOTAL_TERM FIELD
 # TODO ADD TITLES TO POSTING LISTS SO IT WILL BE EASY TO PULL WHEN NEW QUERY ARRIVES
-
+# TODO change D in generate_document_tfidf_matrix to be initiated in the __init__
+# TODO change
+# TODO set dict generate_document_tfidf_matrix to of vectorizer 
 
 class BackEnd:
     def __init__(self, path):
@@ -30,6 +34,7 @@ class BackEnd:
             self.DL = pickle.load(f)
         with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
             self.doc_title_dict = pickle.load(f)
+        self.max_doc = max(list(self.DL.keys()))
 
 
     def get_train_query_terms(self):
@@ -132,7 +137,11 @@ class BackEnd:
         """
         epsilon = .0000001
         total_vocab_size = len(index.term_total)
-        Q = np.zeros(total_vocab_size)
+        Q = lil_matrix((total_vocab_size,1))
+        print(Q.shape)
+        print(lil_matrix((total_vocab_size)).shape)
+        print(lil_matrix((1,total_vocab_size)).shape)
+        print(lil_matrix(total_vocab_size).shape)
         term_vector = list(index.term_total.keys())
         counter = Counter(query_to_search)
         for token in np.unique(query_to_search):
@@ -203,22 +212,26 @@ class BackEnd:
         -----------
         DataFrame of tfidf scores.
         """
-
         total_vocab_size = len(index.term_total)
-        candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words,
-                                                                    pls)  # We do not need to utilize all document. Only the docuemnts which have corrspoinding terms with the query.
-        unique_candidates = np.unique([doc_id for doc_id, freq in candidates_scores.keys()])
-        D = np.zeros((len(unique_candidates), total_vocab_size))
-        D = pd.DataFrame(D)
+        total_doc_len = len(self.DL)
 
-        D.index = unique_candidates
-        D.columns = index.term_total.keys()
+        candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
+        D = lil_matrix((self.max_doc, total_vocab_size))
+
+        candidates_id = list()
+        cloumns_dict = {term: idx for idx, term in enumerate(index.term_total)}
 
         for key in candidates_scores:
             tfidf = candidates_scores[key]
-            doc_id, term = key
-            D.loc[doc_id][term] = tfidf
-        return D
+            doc_id, term = key[0],cloumns_dict[key[1]]
+
+            candidates_id.append(doc_id)
+            D[doc_id,term] = tfidf
+            
+
+
+
+        return D,candidates_id
 
     def cosine_similarity(self, D, Q):
         """
@@ -273,12 +286,14 @@ class BackEnd:
         print(f"get_posting_iter took {datetime.datetime.now()-t1}")
         retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
-            D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
-            if len(D) == 0:
-                return retrieved_docs
-            vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
+            D, candidate_list = self.generate_document_tfidf_matrix(tokens, index, words, pls)
+            
+            print(f"generate_document_tfidf_matrix took {datetime.datetime.now()-t1}")
+            #     return retrieved_docs
+            vect_query = self.generate_query_tfidf_vector(tokens, index)
             # Calculate Cos-Similarity for given query
-            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(D.index, cosine_similarity(D, vect_query)))), N)
+            print(f"generate_query_tfidf_vector took {datetime.datetime.now()-t1}")
+            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(candidate_list, cosine_similarity(vect_query, )))), N)
 
         return retrieved_docs
 
@@ -289,7 +304,7 @@ class BackEnd:
 
 
 def main():
-    operator = BackEnd(r"hw3_index.pkl")
+    operator = BackEnd(r"index.pkl")
     # Generate a random query
     t1 = datetime.datetime.now()
     possible_query_terms = operator.get_train_query_terms()
