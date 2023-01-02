@@ -1,4 +1,7 @@
 # from inverted_index_gcp import *
+import datetime
+import random
+
 from inverted_index_colab import *
 import json
 from nltk.corpus import stopwords
@@ -8,6 +11,8 @@ from collections import defaultdict
 import numpy as np
 import math
 import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+
 
 # TODO NEED TO FIX INDEX.PKL - IT HAS NO TOTAL_TERM FIELD
 # TODO ADD TITLES TO POSTING LISTS SO IT WILL BE EASY TO PULL WHEN NEW QUERY ARRIVES
@@ -61,6 +66,7 @@ class BackEnd:
         with open(index_file, 'rb') as f:
             data = pickle.load(f)
         self.inverted.df = data.df
+        self.inverted.term_total = len(data.posting_locs)
         self.inverted.posting_locs = data.posting_locs
 
     @staticmethod
@@ -257,29 +263,37 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         # Get iterator to work with posting lists
+        t = datetime.datetime.now()
+        print('getting posting iter')
         words, pls = self.inverted.get_posting_iter(index)
-
+        print(datetime.datetime.now() - t)
         retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
+            print('Calculating D')
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
+            print(datetime.datetime.now() - t)
+            print('Calculating vect_query')
             vect_query = self.generate_query_tfidf_vector(tokens, index)
+            print(datetime.datetime.now() - t)
 
-            # Calculate CosSimilarty for given query
+            # Calculate Cos-Similarity for given query
+            print('Getting top docs')
             retrieved_docs[query_id] = self.get_top_n(cosine_similarity(D, vect_query), N)
+        print(datetime.datetime.now() - t)
+
         return retrieved_docs
 
-    def activate_search(self, query, N=100) -> list:
-        # gets a query not as dictionary and casts it to the same format as the homeworks.
-        # TODO add tokenizer
-        res = self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
-        return res
+    def activate_search(self, query, N=3):
+        return self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
 
 
 def main():
-    BS = BackEnd(r"index.pkl")
+    operator = BackEnd(r"index.pkl")
+    # Generate a random query
+    possible_query_terms = operator.get_train_query_terms()
+    query = random.sample(possible_query_terms, 3)
 
-    query = ['rick and morty']
-    BS.activate_search(query)
+    operator.activate_search(query)
 
 
 if __name__ == '__main__':
