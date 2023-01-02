@@ -267,25 +267,18 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         # Get iterator to work with posting lists
-        print('getting posting iter')
-        t1 = datetime.datetime.now()
         words, pls = self.inverted.get_posting_iter(index, query)
-        print(f"get_posting_iter took {datetime.datetime.now()-t1}")
-        retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             if len(D) == 0:
-                return retrieved_docs
+                return []
             vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
             # Calculate Cos-Similarity for given query
-            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(D.index, cosine_similarity(D, vect_query)))), N)
-
-        return retrieved_docs
+            return self.get_top_n(dict(list(zip(D.index, cosine_similarity(D, vect_query)))), N)
 
     def activate_search(self, query, N=50):
-        doc_score_dic = self.get_topN_score_for_queries({0: query}, self.inverted, query, N=N)
-        # return doc_score_dic
-        return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
+        doc_score_dic = self.get_topN_score_for_queries({0: query.split(' ')}, self.inverted, query, N=N)
+        return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic]
 
 
 def main():
@@ -294,7 +287,7 @@ def main():
     t1 = datetime.datetime.now()
     possible_query_terms = operator.get_train_query_terms()
     query = random.sample(possible_query_terms, 3)
-    query = ["best", "marvel", "movie"]
+    query = "best marvel movie"
     result = operator.activate_search(query)
     print(f"\n\nQuery: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:")
     for id, score, title in result:

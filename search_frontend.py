@@ -9,7 +9,7 @@ class MyFlaskApp(Flask):
 
 app = MyFlaskApp(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-operator = BackEnd('index.pkl')
+operator = BackEnd('hw3_index.pkl')
 
 @app.route("/search")
 def search():
@@ -57,7 +57,7 @@ def search_body():
     res = []
     query = request.args.get('query', '')
     if len(query) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
     res = operator.activate_search(query, N=10)
     # END SOLUTION
