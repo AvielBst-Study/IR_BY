@@ -1,8 +1,8 @@
-# from inverted_index_gcp import *
+from inverted_index_gcp import *
 import datetime
 import random
 
-from inverted_index_colab import *
+# from inverted_index_colab import *
 import json
 from nltk.corpus import stopwords
 import pickle
@@ -291,8 +291,8 @@ class BackEnd:
 def main():
     operator = BackEnd(r"hw3_index.pkl")
     # Generate a random query
-    possible_query_terms = operator.get_train_query_terms()
     t1 = datetime.datetime.now()
+    possible_query_terms = operator.get_train_query_terms()
     query = random.sample(possible_query_terms, 3)
     query = ["best", "marvel", "movie"]
     result = operator.activate_search(query)
