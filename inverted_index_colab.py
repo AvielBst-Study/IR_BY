@@ -8,7 +8,7 @@ from operator import itemgetter
 from pathlib import Path
 import pickle
 from contextlib import closing
-
+from pyspark.sql import SparkSession
 import gcsfs
 
 BLOCK_SIZE = 1999998
@@ -129,12 +129,14 @@ class InvertedIndex:
     del state['_posting_list']
     return state
 
-  def posting_lists_iter(self):
+  def posting_lists_iter(self, query):
     """ A generator that reads one posting list from disk and yields 
         a (word:str, [(doc_id:int, tf:int), ...]) tuple.
     """
+    filtered_posting_locs = {k: v for k, v in self.posting_locs.items() if k in query}
+
     with closing(MultiFileReader()) as reader:
-      for w, locs in self.posting_locs.items():
+      for w, locs in filtered_posting_locs.items():
         b = reader.read(locs, self.df[w] * TUPLE_SIZE)
         posting_list = []
         for i in range(self.df[w]):
@@ -143,7 +145,7 @@ class InvertedIndex:
           posting_list.append((doc_id, tf))
         yield w, posting_list
 
-  def get_posting_iter(self, index):
+  def get_posting_iter(self, index, query):
     """
     This function returning the iterator working with posting list.
 
@@ -151,7 +153,7 @@ class InvertedIndex:
     ----------
     index: inverted index
     """
-    words, pls = zip(*index.posting_lists_iter())
+    words, pls = zip(*index.posting_lists_iter(query))
     return words, pls
 
   @staticmethod

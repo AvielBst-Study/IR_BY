@@ -248,7 +248,7 @@ class BackEnd:
             scores[doc_id] = numerator / denominator
         return scores
 
-    def get_topN_score_for_queries(self, queries_to_search, index, N=3):
+    def get_topN_score_for_queries(self, queries_to_search, index, query, N=3):
         """
             Generate a dictionary that gathers for every query its topN score.
 
@@ -269,7 +269,7 @@ class BackEnd:
         # Get iterator to work with posting lists
         print('getting posting iter')
         t1 = datetime.datetime.now()
-        words, pls = self.inverted.get_posting_iter(index)
+        words, pls = self.inverted.get_posting_iter(index, query)
         print(f"get_posting_iter took {datetime.datetime.now()-t1}")
         retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
@@ -282,8 +282,8 @@ class BackEnd:
 
         return retrieved_docs
 
-    def activate_search(self, query, N=20):
-        doc_score_dic = self.get_topN_score_for_queries({0: query}, self.inverted, N=N)
+    def activate_search(self, query, N=50):
+        doc_score_dic = self.get_topN_score_for_queries({0: query}, self.inverted, query, N=N)
         # return doc_score_dic
         return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
 
@@ -293,9 +293,12 @@ def main():
     # Generate a random query
     possible_query_terms = operator.get_train_query_terms()
     t1 = datetime.datetime.now()
-    query = random.sample(possible_query_terms, 8)
+    query = random.sample(possible_query_terms, 3)
+    query = ["best", "marvel", "movie"]
     result = operator.activate_search(query)
-    print(f"Query: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:\n    {result}")
+    print(f"\n\nQuery: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:")
+    for id, score, title in result:
+        print(f"    Id:{id}, Score:{score}, title:{title}")
 
 
 if __name__ == '__main__':
