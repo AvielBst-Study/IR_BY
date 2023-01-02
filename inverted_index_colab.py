@@ -143,6 +143,16 @@ class InvertedIndex:
           posting_list.append((doc_id, tf))
         yield w, posting_list
 
+  def get_posting_iter(self, index):
+    """
+    This function returning the iterator working with posting list.
+
+    Parameters:
+    ----------
+    index: inverted index
+    """
+    words, pls = zip(*index.posting_lists_iter())
+    return words, pls
 
   @staticmethod
   def read_index(base_dir, name):
