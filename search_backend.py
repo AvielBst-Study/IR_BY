@@ -112,7 +112,7 @@ class BackEnd:
         a ranked list of pairs (doc_id, score) in the length of N.
         """
 
-        return sorted([(doc_id, round(score[0], 5)) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
+        return sorted([(doc_id, score[0]) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
                       reverse=True)[:N]
 
     def generate_query_tfidf_vector(self, query_to_search, index):
@@ -213,24 +213,26 @@ class BackEnd:
         print('got here')
 
         total_vocab_size = len(index.term_total)
-        total_doc_len = len(self.DL)
 
         candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
+        # unique_candidates = np.unique(candidates_scores.keys(),lambda x:x[0])
+        unique_candidates = np.unique([doc_id for doc_id, freq in candidates_scores.keys()])
         t = datetime.datetime.now()
         D = lil_matrix((len(candidates_scores), total_vocab_size))
-        print(f'creating the lil took:{datetime.datetime.now()}')
-        candidates_id = list()
+        print(f'creating the lil took:{datetime.datetime.now()-t}')
+        # candidates_id = list()
+
         cloumns_dict = {term: idx for idx, term in enumerate(index.term_total)}
-        # cnadidates_dict = {} #maps from idnex to candidate doc_id
+        candidates_dict = {key : candidate_id for candidate_id, key in enumerate(unique_candidates) } #maps from doc_id to candidate_id
 
-        for key in candidates_scores:
+        for idx, key in enumerate(candidates_scores):
             tfidf = candidates_scores[key]
-            doc_id, term = key[0],cloumns_dict[key[1]]
+            doc_id, term = candidates_dict[key[0]], cloumns_dict[key[1]]
 
-            candidates_id.append(doc_id)
-            D[doc_id,term] = tfidf
+            # candidates_id.append(doc_id)
+            D[doc_id, term] = tfidf
 
-        return D,candidates_id
+        return D, candidates_dict#candidates_id
 
     def cosine_similarity(self, D, Q):
         """
