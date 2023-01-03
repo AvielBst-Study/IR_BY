@@ -15,7 +15,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
-from scipy.sparse import csr_matrix,lil_matrix,coo_matrix
+from scipy.sparse import csr_matrix,lil_matrix
 # TODO NEED TO FIX INDEX.PKL - IT HAS NO TOTAL_TERM FIELD
 # TODO ADD TITLES TO POSTING LISTS SO IT WILL BE EASY TO PULL WHEN NEW QUERY ARRIVES
 # TODO change D in generate_document_tfidf_matrix to be initiated in the __init__
@@ -111,8 +111,8 @@ class BackEnd:
         -----------
         a ranked list of pairs (doc_id, score) in the length of N.
         """
-        x = 10
-        return sorted([(doc_id, score) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
+
+        return sorted([(doc_id, round(score[0], 5)) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
                       reverse=True)[:N]
 
     def generate_query_tfidf_vector(self, query_to_search, index):
@@ -146,11 +146,12 @@ class BackEnd:
                 df = index.df[token]
                 idf = math.log((len(self.DL)) / (df + epsilon), 10)  # smoothing
 
-
-                ind = term_vector.index(token)
-                Q[ind] = tf * idf
-
-        return Q
+                try:
+                    ind = term_vector.index(token)
+                    Q[ind] = tf * idf
+                except:
+                    pass
+        return csr_matrix(Q)
 
     def get_candidate_documents_and_scores(self, query_to_search, index, words, pls):
         """
@@ -207,59 +208,57 @@ class BackEnd:
         -----------
         DataFrame of tfidf scores.
         """
-
-        
         print('got here')
 
         total_vocab_size = len(index.term_total)
+        total_doc_len = len(self.DL)
 
         candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
-        # unique_candidates = np.unique(candidates_scores.keys(),lambda x:x[0])
-        unique_candidates = np.unique([doc_id for doc_id, freq in candidates_scores.keys()])
         t = datetime.datetime.now()
-        D = lil_matrix((len(candidates_scores), total_vocab_size))
-        print(f'creating the lil took:{datetime.datetime.now()-t}')
-        # candidates_id = list()
-
+        D = lil_matrix((self.max_doc, total_vocab_size))
+        print(f'creating the lil took:{datetime.datetime.now()}')
+        candidates_id = list()
         cloumns_dict = {term: idx for idx, term in enumerate(index.term_total)}
-        candidates_dict = {key : candidate_id for candidate_id, key in enumerate(unique_candidates) } #maps from doc_id to candidate_id
 
-        for idx, key in enumerate(candidates_scores):
+        for key in candidates_scores:
             tfidf = candidates_scores[key]
-            doc_id, term = candidates_dict[key[0]], cloumns_dict[key[1]]
+            doc_id, term = key[0],cloumns_dict[key[1]]
 
-            # candidates_id.append(doc_id)
-            D[doc_id, term] = tfidf
+            candidates_id.append(doc_id)
+            D[doc_id,term] = tfidf
+            
 
-        return csr_matrix(D), candidates_dict#candidates_id
 
-    # def cosine_similarity(self, D, Q):
-    #     """
-    #     Calculate the cosine similarity for each candidate document in D and a given query (e.g., Q).
-    #     Generate a dictionary of cosine similarity scores
-    #     key: doc_id
-    #     value: cosine similarity score
-    #
-    #     Parameters:
-    #     -----------
-    #     D: DataFrame of tfidf scores.
-    #
-    #     Q: vectorized query with tfidf scores
-    #
-    #     Returns:
-    #     -----------
-    #     dictionary of cosine similarity score as follows:
-    #                                                                 key: document id (e.g., doc_id)
-    #                                                                 value: cosine similarty score.
-    #     """
-    #     # YOUR CODE HERE
-    #     scores = {}
-    #     for doc_id, tfidf_vect in D.iterrows():
-    #         doc_tfidf = np.array(tfidf_vect)
-    #         numerator = np.sum(doc_tfidf * Q)
-    #         denominator = np.linalg.norm(doc_tfidf) * np.linalg.norm(Q)
-    #         scores[doc_id] = numerator / denominator
-    #     return scores
+
+        return D,candidates_id
+
+    def cosine_similarity(self, D, Q):
+        """
+        Calculate the cosine similarity for each candidate document in D and a given query (e.g., Q).
+        Generate a dictionary of cosine similarity scores
+        key: doc_id
+        value: cosine similarity score
+
+        Parameters:
+        -----------
+        D: DataFrame of tfidf scores.
+
+        Q: vectorized query with tfidf scores
+
+        Returns:
+        -----------
+        dictionary of cosine similarity score as follows:
+                                                                    key: document id (e.g., doc_id)
+                                                                    value: cosine similarty score.
+        """
+        # YOUR CODE HERE
+        scores = {}
+        for doc_id, tfidf_vect in D.iterrows():
+            doc_tfidf = np.array(tfidf_vect)
+            numerator = np.sum(doc_tfidf * Q)
+            denominator = np.linalg.norm(doc_tfidf) * np.linalg.norm(Q)
+            scores[doc_id] = numerator / denominator
+        return scores
 
     def get_topN_score_for_queries(self, queries_to_search, index, query, N=3):
         """
@@ -286,14 +285,13 @@ class BackEnd:
         print(f"get_posting_iter took {datetime.datetime.now()-t1}")
         retrieved_docs = {}
         for query_id, tokens in queries_to_search.items():
-            t1 = datetime.datetime.now()
             D, candidate_list = self.generate_document_tfidf_matrix(tokens, index, words, pls)
-            print(f"generate_document_tfidf_matrix: {datetime.datetime.now() - t1}")
-            vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
+            # if D.shape[] == 0:
+            #     return retrieved_docs
+            vect_query = self.generate_query_tfidf_vector(tokens, index)#.reshape(1, -1)
+            # Calculate Cos-Similarity for given query
 
-
-            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(candidate_list, D._mul_vector(vect_query)))),N)
-            # retrieved_docs[query_id] = self.get_top_n(dict(list(zip(candidate_list, cosine_similarity(D, vect_query)))), N)
+            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(candidate_list, cosine_similarity(D, vect_query)))), N)
 
         return retrieved_docs
 
@@ -303,7 +301,7 @@ class BackEnd:
         return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
 
 
-def main():#
+def main():
     operator = BackEnd(r"index.pkl")
     # Generate a random query
     t1 = datetime.datetime.now()
