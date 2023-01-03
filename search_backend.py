@@ -1,8 +1,5 @@
 from inverted_index_gcp import *
 import datetime
-import random
-
-# from inverted_index_colab import *
 import json
 from nltk.corpus import stopwords
 import pickle
@@ -11,31 +8,31 @@ from collections import defaultdict
 import numpy as np
 import math
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-
-from scipy.sparse import csr_matrix,lil_matrix,coo_matrix
+from scipy.sparse import csr_matrix,lil_matrix
 # TODO NEED TO FIX INDEX.PKL - IT HAS NO TOTAL_TERM FIELD
 # TODO ADD TITLES TO POSTING LISTS SO IT WILL BE EASY TO PULL WHEN NEW QUERY ARRIVES
 # TODO change D in generate_document_tfidf_matrix to be initiated in the __init__
-# TODO change
-# TODO set dict generate_document_tfidf_matrix to of vectorizer 
+# TODO set dict generate_document_tfidf_matrix to of vectorizer
 
-class BackEnd:
-    def __init__(self, path):
+
+class Data:
+    def __init__(self):
         self.terms_in_train_set = []
         self.stopwords = frozenset(stopwords.words('english'))
         self.GCSFS = gcsfs.GCSFileSystem()
         self.inverted = InvertedIndex()
         self.bucket_name = "206224503_ir_hw3"
-        self.read_index(path)
         with self.GCSFS.open(r"gs://ir_training_index/doc_dl_dict.pickle", "rb") as f:
             self.DL = pickle.load(f)
         with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
             self.doc_title_dict = pickle.load(f)
         self.max_doc = max(list(self.DL.keys()))
 
+
+class BackEnd:
+    def __init__(self, path, Data):
+        self.Data = Data
+        self.read_index(path)
 
     def get_train_query_terms(self):
         """
@@ -50,16 +47,16 @@ class BackEnd:
                 terms = query.split()
                 terms_in_train_set += [t if t[-1] != '?' else t[:-1] for t in terms]
             self.terms_in_train_set = list(
-                set([t.lower() for t in terms_in_train_set if t.lower() not in self.stopwords]))
+                set([t.lower() for t in terms_in_train_set if t.lower() not in self.Data.stopwords]))
 
         return self.terms_in_train_set
 
     def get_posting_locs_from_pkls(self):
-        files = self.GCSFS.ls(f"gs://{self.bucket_name}/postings_gcp/")
+        files = self.Data.GCSFS.ls(f"gs://{self.Data.bucket_name}/postings_gcp/")
         files = [f for f in files if f.endswith('.pickle')]
         super_posting_locs = defaultdict(list)
         for file in files:
-            with self.GCSFS.open(f"gs://{file}", "rb") as f:
+            with self.Data.GCSFS.open(f"gs://{file}", "rb") as f:
                 # Load the data from the pickle file into a dictionary
                 posting_locs_list = pickle.load(f)
 
@@ -74,27 +71,11 @@ class BackEnd:
     def read_index(self, index_file: pickle):
         with open(index_file, 'rb') as f:
             data = pickle.load(f)
-        self.inverted.df = data.df
-        self.inverted.term_total = data.posting_locs
-        self.inverted.posting_locs = data.posting_locs
+        self.Data.inverted.df = data.df
+        self.Data.inverted.term_total = data.posting_locs
+        self.Data.inverted.posting_locs = data.posting_locs
 
-    @staticmethod
-    def read_posting_list(inverted, w):
-        with closing(MultiFileReader()) as reader:
-            locs = inverted.posting_locs[w]
-            try:
-                b = reader.read(locs, inverted.df[w] * TUPLE_SIZE)
-            except KeyError:
-                return []
-
-            posting_list = []
-            for i in range(inverted.df[w]):
-                doc_id = int.from_bytes(b[i * TUPLE_SIZE:i * TUPLE_SIZE + 4], 'big')
-                tf = int.from_bytes(b[i * TUPLE_SIZE + 4:(i + 1) * TUPLE_SIZE], 'big')
-                posting_list.append((doc_id, tf))
-            return posting_list
-
-    def get_top_n(self, sim_dict, N=3):
+    def get_top_n(self, sim_dict, n):
         """
         Sort and return the highest N documents according to the cosine similarity score.
         Generate a dictionary of cosine similarity scores
@@ -111,9 +92,13 @@ class BackEnd:
         -----------
         a ranked list of pairs (doc_id, score) in the length of N.
         """
-        x = 10
-        return sorted([(doc_id, score) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
-                      reverse=True)[:N]
+        result_list = sorted([(doc_id, score, self.Data.doc_title_dict[doc_id]) for doc_id, score in sim_dict.items()],
+                             key=lambda x: x[1],
+                             reverse=True)
+        if n > 0:
+            return result_list[:n]
+        else:
+            return result_list
 
     def generate_query_tfidf_vector(self, query_to_search, index):
         """
@@ -144,12 +129,9 @@ class BackEnd:
             if token in index.term_total.keys():  # avoid terms that do not appear in the index.
                 tf = counter[token] / len(query_to_search)  # term frequency divded by the length of the query
                 df = index.df[token]
-                idf = math.log((len(self.DL)) / (df + epsilon), 10)  # smoothing
-
-
+                idf = math.log((len(self.Data.DL)) / (df + epsilon), 10)  # smoothing
                 ind = term_vector.index(token)
                 Q[ind] = tf * idf
-
         return Q
 
     def get_candidate_documents_and_scores(self, query_to_search, index, words, pls):
@@ -179,10 +161,9 @@ class BackEnd:
         for term in np.unique(query_to_search):
             if term in words:
                 list_of_doc = pls[words.index(term)]
-                normlized_tfidf = [(doc_id, (freq / self.DL[doc_id]) * math.log(len(self.DL) / index.df[term], 10))
-                                   for doc_id, freq in list_of_doc]
-
-                for doc_id, tfidf in normlized_tfidf:
+                normalized_tfidf = [(doc_id, (freq / self.Data.DL[doc_id]) * math.log(len(self.Data.DL) / index.df[term], 10))
+                                    for doc_id, freq in list_of_doc]
+                for doc_id, tfidf in normalized_tfidf:
                     candidates[(doc_id, term)] = candidates.get((doc_id, term), 0) + tfidf
         return candidates
 
@@ -208,60 +189,20 @@ class BackEnd:
         DataFrame of tfidf scores.
         """
 
-        
-        print('got here')
-
         total_vocab_size = len(index.term_total)
-
         candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
-        # unique_candidates = np.unique(candidates_scores.keys(),lambda x:x[0])
         unique_candidates = np.unique([doc_id for doc_id, freq in candidates_scores.keys()])
-        t = datetime.datetime.now()
         D = lil_matrix((len(candidates_scores), total_vocab_size))
-        print(f'creating the lil took:{datetime.datetime.now()-t}')
-        # candidates_id = list()
-
-        cloumns_dict = {term: idx for idx, term in enumerate(index.term_total)}
-        candidates_dict = {key : candidate_id for candidate_id, key in enumerate(unique_candidates) } #maps from doc_id to candidate_id
+        column_dict = {term: idx for idx, term in enumerate(index.term_total)}
+        candidates_dict = {key: candidate_id for candidate_id, key in enumerate(unique_candidates)}
 
         for idx, key in enumerate(candidates_scores):
             tfidf = candidates_scores[key]
-            doc_id, term = candidates_dict[key[0]], cloumns_dict[key[1]]
-
-            # candidates_id.append(doc_id)
+            doc_id, term = candidates_dict[key[0]], column_dict[key[1]]
             D[doc_id, term] = tfidf
+        return csr_matrix(D), candidates_dict
 
-        return csr_matrix(D), candidates_dict#candidates_id
-
-    # def cosine_similarity(self, D, Q):
-    #     """
-    #     Calculate the cosine similarity for each candidate document in D and a given query (e.g., Q).
-    #     Generate a dictionary of cosine similarity scores
-    #     key: doc_id
-    #     value: cosine similarity score
-    #
-    #     Parameters:
-    #     -----------
-    #     D: DataFrame of tfidf scores.
-    #
-    #     Q: vectorized query with tfidf scores
-    #
-    #     Returns:
-    #     -----------
-    #     dictionary of cosine similarity score as follows:
-    #                                                                 key: document id (e.g., doc_id)
-    #                                                                 value: cosine similarty score.
-    #     """
-    #     # YOUR CODE HERE
-    #     scores = {}
-    #     for doc_id, tfidf_vect in D.iterrows():
-    #         doc_tfidf = np.array(tfidf_vect)
-    #         numerator = np.sum(doc_tfidf * Q)
-    #         denominator = np.linalg.norm(doc_tfidf) * np.linalg.norm(Q)
-    #         scores[doc_id] = numerator / denominator
-    #     return scores
-
-    def get_topN_score_for_queries(self, queries_to_search, index, query, N=3):
+    def get_topN_score_for_queries(self, queries_to_search, index, query, n):
         """
             Generate a dictionary that gathers for every query its topN score.
 
@@ -280,37 +221,23 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         # Get iterator to work with posting lists
-        print('getting posting iter')
-        t1 = datetime.datetime.now()
-        words, pls = self.inverted.get_posting_iter(index, query)
-        print(f"get_posting_iter took {datetime.datetime.now()-t1}")
-        retrieved_docs = {}
+        words, pls = self.Data.inverted.get_posting_iter(index, query)
         for query_id, tokens in queries_to_search.items():
-            t1 = datetime.datetime.now()
             D, candidate_list = self.generate_document_tfidf_matrix(tokens, index, words, pls)
-            print(f"generate_document_tfidf_matrix: {datetime.datetime.now() - t1}")
             vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
+            return self.get_top_n(dict(list(zip(candidate_list, D._mul_vector(vect_query)))), n)
+
+    def activate_search(self, query, n=0):
+        return self.get_topN_score_for_queries({0: query.split(' ')}, self.Data.inverted, query, n)
 
 
-            retrieved_docs[query_id] = self.get_top_n(dict(list(zip(candidate_list, D._mul_vector(vect_query)))),N)
-            # retrieved_docs[query_id] = self.get_top_n(dict(list(zip(candidate_list, cosine_similarity(D, vect_query)))), N)
+def main():
+    data_obj = Data()
+    operator = BackEnd(r"index.pkl", data_obj)
 
-        return retrieved_docs
-
-    def activate_search(self, query, N=50):
-        doc_score_dic = self.get_topN_score_for_queries({0: query}, self.inverted, query, N=N)
-        # return doc_score_dic
-        return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
-
-
-def main():#
-    operator = BackEnd(r"index.pkl")
-    # Generate a random query
     t1 = datetime.datetime.now()
-    possible_query_terms = operator.get_train_query_terms()
-    query = random.sample(possible_query_terms, 3)
-    query = ["best", "marvel", "movie"]
-    result = operator.activate_search(query)
+    query = "spongebob is squared"
+    result = operator.activate_search(query, 10)
     print(f"\n\nQuery: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:")
     for id, score, title in result:
         print(f"    Id:{id}, Score:{score}, title:{title}")
