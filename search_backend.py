@@ -303,7 +303,7 @@ class BackEnd:
         return [(id, score, self.doc_title_dict[id]) for id, score in doc_score_dic[0]]
 
 
-def main():
+def main():#
     operator = BackEnd(r"index.pkl")
     # Generate a random query
     t1 = datetime.datetime.now()
