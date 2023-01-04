@@ -7,12 +7,16 @@ import gcsfs
 from collections import defaultdict
 import numpy as np
 import math
-import pandas as pd
-from scipy.sparse import csr_matrix,lil_matrix
-# TODO NEED TO FIX INDEX.PKL - IT HAS NO TOTAL_TERM FIELD
-# TODO ADD TITLES TO POSTING LISTS SO IT WILL BE EASY TO PULL WHEN NEW QUERY ARRIVES
-# TODO change D in generate_document_tfidf_matrix to be initiated in the __init__
-# TODO set dict generate_document_tfidf_matrix to of vectorizer
+from scipy.sparse import csr_matrix, lil_matrix
+from nltk.stem.porter import *
+
+
+# FIXME there is a problem in scores function --- query: Apple computer
+#   ours: (23500355, 0.043398284290206174)
+#   theirs: (254496, 0.0009996970927817355)
+
+# TODO change D in generate_document_tfidf_matrix to coo_matrix -- ?
+# TODO set dict generate_document_tfidf_matrix to of vectorizer -- ?
 
 
 class Data:
@@ -20,13 +24,22 @@ class Data:
         self.terms_in_train_set = []
         self.stopwords = frozenset(stopwords.words('english'))
         self.GCSFS = gcsfs.GCSFileSystem()
+        self.stemmer = PorterStemmer()
         self.inverted = InvertedIndex()
         self.bucket_name = "206224503_ir_hw3"
         with self.GCSFS.open(r"gs://ir_training_index/doc_dl_dict.pickle", "rb") as f:
             self.DL = pickle.load(f)
         with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
             self.doc_title_dict = pickle.load(f)
-        self.max_doc = max(list(self.DL.keys()))
+
+        english_stopwords = frozenset(stopwords.words('english'))
+        corpus_stopwords = ["category", "references", "also", "external", "links",
+                            "may", "first", "see", "history", "people", "one", "two",
+                            "part", "thumb", "including", "second", "following",
+                            "many", "however", "would", "became"]
+
+        self.all_stopwords = english_stopwords.union(corpus_stopwords)
+        self.RE_WORD = re.compile(r"""[\#\@\w](['\-]?\w){2,24}""", re.UNICODE)
 
 
 class BackEnd:
@@ -75,7 +88,14 @@ class BackEnd:
         self.Data.inverted.term_total = data.posting_locs
         self.Data.inverted.posting_locs = data.posting_locs
 
-    def get_top_n(self, sim_dict, n):
+    def tokenize(self, text, use_stemming=False):
+        tokens = [token.group() for token in self.Data.RE_WORD.finditer(text.lower())]
+        tokens = [token for token in tokens if (token not in self.Data.all_stopwords)]
+        if use_stemming:
+            tokens = [self.Data.stemmer.stem(token) for token in tokens]
+        return tokens
+
+    def get_top_n(self, sim_list, n):
         """
         Sort and return the highest N documents according to the cosine similarity score.
         Generate a dictionary of cosine similarity scores
@@ -92,13 +112,10 @@ class BackEnd:
         -----------
         a ranked list of pairs (doc_id, score) in the length of N.
         """
-        result_list = sorted([(doc_id, score, self.Data.doc_title_dict[doc_id]) for doc_id, score in sim_dict.items()],
-                             key=lambda x: x[1],
-                             reverse=True)
         if n > 0:
-            return result_list[:n]
+            return sim_list[:n]
         else:
-            return result_list
+            return sim_list
 
     def generate_query_tfidf_vector(self, query_to_search, index):
         """
@@ -196,13 +213,13 @@ class BackEnd:
         column_dict = {term: idx for idx, term in enumerate(index.term_total)}
         candidates_dict = {key: candidate_id for candidate_id, key in enumerate(unique_candidates)}
 
-        for idx, key in enumerate(candidates_scores):
-            tfidf = candidates_scores[key]
-            doc_id, term = candidates_dict[key[0]], column_dict[key[1]]
-            D[doc_id, term] = tfidf
+        for doc_term, score in candidates_scores.items():
+            doc_id, term = candidates_dict[doc_term[0]], column_dict[doc_term[1]]
+            D[doc_id, term] = score
         return csr_matrix(D), candidates_dict
 
-    def get_topN_score_for_queries(self, queries_to_search, index, query, n):
+
+    def get_topN_score_for_queries(self, queries_to_search, index, n):
         """
             Generate a dictionary that gathers for every query its topN score.
 
@@ -220,15 +237,17 @@ class BackEnd:
                                                                 key: query_id
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
-        # Get iterator to work with posting lists
-        words, pls = self.Data.inverted.get_posting_iter(index, query)
         for query_id, tokens in queries_to_search.items():
+            words, pls = self.Data.inverted.get_posting_iter(index, tokens)
             D, candidate_list = self.generate_document_tfidf_matrix(tokens, index, words, pls)
-            vect_query = self.generate_query_tfidf_vector(tokens, index).reshape(1, -1)
-            return self.get_top_n(dict(list(zip(candidate_list, D._mul_vector(vect_query)))), n)
+            vect_query = self.generate_query_tfidf_vector(tokens, index)
+            sorted_result = sorted(list(zip(candidate_list, D._mul_vector(vect_query))), key=lambda x: x[1], reverse=True)
+            retrieved_docs = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in sorted_result]
+            return self.get_top_n(retrieved_docs, n)
 
     def activate_search(self, query, n=0):
-        return self.get_topN_score_for_queries({0: query.split(' ')}, self.Data.inverted, query, n)
+        tokenized_query = self.tokenize(query)
+        return self.get_topN_score_for_queries({0: tokenized_query}, self.Data.inverted, n)
 
 
 def main():
@@ -236,11 +255,13 @@ def main():
     operator = BackEnd(r"index.pkl", data_obj)
 
     t1 = datetime.datetime.now()
-    query = "spongebob is squared"
+    query = "computer apple"
     result = operator.activate_search(query, 10)
-    print(f"\n\nQuery: {query}\nTook {datetime.datetime.now() - t1}\nRelevant Docs are:")
+    print(f"\n\nQuery: {query}\nRelevant Docs are:")
     for id, score, title in result:
         print(f"    Id:{id}, Score:{score}, title:{title}")
+
+    print(f"\n\nTime: {datetime.datetime.now() - t1}")
 
 
 if __name__ == '__main__':

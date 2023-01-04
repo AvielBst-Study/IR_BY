@@ -11,8 +11,8 @@ app = MyFlaskApp(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 data = Data()
 body_operator = BackEnd('index.pkl', data)
-index_operator = BackEnd('title_index.pkl', data)
-anchor_operator = BackEnd('anchor_index', data)
+# index_operator = BackEnd('title_index.pkl', data)
+# anchor_operator = BackEnd('anchor_index.pkl', data)
 
 
 @app.route("/search")
@@ -95,7 +95,7 @@ def search_title():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    res = index_operator.activate_search(query)
+    # res = index_operator.activate_search(query)
     # END SOLUTION
     return jsonify(res)
 
@@ -112,7 +112,7 @@ def search_anchor():
         distinct query word, regardless of the number of times the term appeared
         in the anchor text (or query).
 
-        Test this by navigating to the a URL like:
+        Test this by navigating to the URL like:
          http://YOUR_SERVER_DOMAIN/search_anchor?query=hello+world
         where YOUR_SERVER_DOMAIN is something like XXXX-XX-XX-XX-XX.ngrok.io
         if you're using ngrok on Colab or your external IP on GCP.
