@@ -1,5 +1,3 @@
-import pandas as pd
-
 from inverted_index_gcp import *
 import datetime
 import json
@@ -10,9 +8,18 @@ from collections import defaultdict
 import numpy as np
 import math
 from scipy.sparse import csr_matrix, lil_matrix
+import scipy.sparse
+import scipy.linalg
 from nltk.stem.porter import *
-import gzip
-import csv
+
+
+# FIXME there is a problem in scores function --- query: Apple computer
+#   ours: (23500355, 0.043398284290206174)
+#   theirs: (254496, 0.0009996970927817355)
+
+# TODO change D in generate_document_tfidf_matrix to coo_matrix -- ?
+# TODO set dict generate_document_tfidf_matrix to of vectorizer -- ?
+
 
 class Data:
     def __init__(self):
@@ -33,8 +40,10 @@ class Data:
                             "may", "first", "see", "history", "people", "one", "two",
                             "part", "thumb", "including", "second", "following",
                             "many", "however", "would", "became"]
+
         self.all_stopwords = english_stopwords.union(corpus_stopwords)
         self.RE_WORD = re.compile(r"""[\#\@\w](['\-]?\w){2,24}""", re.UNICODE)
+        self.term_dict = {}
 
 
 class BackEnd:
@@ -87,6 +96,10 @@ class BackEnd:
         self.Data.inverted.df = data.df
         self.Data.inverted.term_total = data.posting_locs
         self.Data.inverted.posting_locs = data.posting_locs
+
+        #added
+        self.Data.term_dict = {term: idx for idx, term in
+         enumerate(self.Data.inverted.term_total)}
 
     def tokenize(self, text, use_stemming=False):
         tokens = [token.group() for token in self.Data.RE_WORD.finditer(text.lower())]
@@ -174,15 +187,35 @@ class BackEnd:
                                                                 key: pair (doc_id,term)
                                                                 value: tfidf score.
         """
-        candidates = {}
+        term_array = None
+        document_ids = None
+        document_scores = None
+        # candidates = {}
         for term in np.unique(query_to_search):
             if term in words:
+
                 list_of_doc = pls[words.index(term)]
                 normalized_tfidf = [(doc_id, (freq / self.Data.DL[doc_id]) * math.log(len(self.Data.DL) / index.df[term], 10))
                                     for doc_id, freq in list_of_doc]
-                for doc_id, tfidf in normalized_tfidf:
-                    candidates[(doc_id, term)] = candidates.get((doc_id, term), 0) + tfidf
-        return candidates
+                # create the doc_id array and score array
+                cur_document_ids, cur_document_scores = zip(*normalized_tfidf)
+                cur_document_ids, cur_document_scores = np.asarray(cur_document_ids), np.asarray(cur_document_scores)
+
+                # create term_id array for each term, that contains term_id in size of the number of docs it had
+                term_id = self.Data.term_dict[term]
+                cur_term_array = np.full(len(cur_document_ids), fill_value= term_id )
+
+                # create or concatenate each of the three
+                if term_array is None:
+                    term_array = cur_term_array
+                    document_scores = cur_document_scores
+                    document_ids = cur_document_ids
+                else:
+                    term_array = np.concatenate([term_array,cur_term_array])
+                    document_scores = np.concatenate([document_scores, cur_document_scores])
+                    document_ids = np.concatenate([document_ids, cur_document_ids])
+        return term_array, document_ids, document_scores
+
 
     def generate_document_tfidf_matrix(self, query_to_search, index, words, pls):
         """
@@ -206,19 +239,27 @@ class BackEnd:
         DataFrame of tfidf scores.
         """
 
+        term_id, candidate_id, candidate_score = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
+
         total_vocab_size = len(index.term_total)
-        candidates_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
-        unique_candidates = np.unique([doc_id for doc_id, freq in candidates_scores.keys()])
-        D = lil_matrix((len(candidates_scores), total_vocab_size))
-        column_dict = {term: idx for idx, term in enumerate(index.term_total)}
-        candidates_dict = {key: candidate_id for candidate_id, key in enumerate(unique_candidates)}
+        max_doc_id = np.max(candidate_id)#max(self.Data.DL.keys())#TODO change to doc_id dictionary
 
-        for doc_term, score in candidates_scores.items():
-            doc_id, term = candidates_dict[doc_term[0]], column_dict[doc_term[1]]
-            D[doc_id, term] = score
-        return csr_matrix(D), candidates_dict
+        D = scipy.sparse.coo_matrix((candidate_score, (candidate_id, term_id)),
+                                    shape = (max_doc_id + 1, total_vocab_size + 1))
+        return D
 
 
+
+    def score(self,D,Q):
+        """gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
+        -------------
+        """
+        dot = D._mul_vector(Q)
+        # norm_D = scipy.sparse.linalg.norm(D ,ord = 2, axis = 1)
+
+        query_norma = scipy.linalg.norm(Q)
+        scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
+        return scores
     def get_topN_score_for_queries(self, queries_to_search, index, n):
         """
             Generate a dictionary that gathers for every query its topN score.
@@ -239,9 +280,9 @@ class BackEnd:
         """
         for query_id, tokens in queries_to_search.items():
             words, pls = self.Data.inverted.get_posting_iter(index, tokens, self.part)
-            D, candidate_list = self.generate_document_tfidf_matrix(tokens, index, words, pls)
+            D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             vect_query = self.generate_query_tfidf_vector(tokens, index)
-            sorted_result = sorted(list(zip(candidate_list, D._mul_vector(vect_query))), key=lambda x: x[1], reverse=True)
+            sorted_result = sorted(self.score(D,vect_query), key=lambda x: x[1], reverse=True)
             retrieved_docs = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in sorted_result]
             return self.get_top_n(retrieved_docs, n)
 
