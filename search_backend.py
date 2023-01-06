@@ -1,3 +1,5 @@
+import pandas as pd
+
 from inverted_index_gcp import *
 import datetime
 import json
@@ -9,27 +11,21 @@ import numpy as np
 import math
 from scipy.sparse import csr_matrix, lil_matrix
 from nltk.stem.porter import *
-
-
-# FIXME there is a problem in scores function --- query: Apple computer
-#   ours: (23500355, 0.043398284290206174)
-#   theirs: (254496, 0.0009996970927817355)
-
-# TODO change D in generate_document_tfidf_matrix to coo_matrix -- ?
-# TODO set dict generate_document_tfidf_matrix to of vectorizer -- ?
-
+import gzip
+import csv
 
 class Data:
     def __init__(self):
         self.terms_in_train_set = []
         self.stopwords = frozenset(stopwords.words('english'))
         self.GCSFS = gcsfs.GCSFileSystem()
-        self.stemmer = PorterStemmer()
         self.inverted = InvertedIndex()
         self.bucket_name = "206224503_ir_hw3"
-        with self.GCSFS.open(r"gs://ir_training_index/doc_dl_dict.pickle", "rb") as f:
+        with open("pr_dict.pkl", "rb") as f:
+            self.pr_dict = pickle.load(f)
+        with self.GCSFS.open(r"gs://ir_project_utils_files/doc_dl_dict.pickle", "rb") as f:
             self.DL = pickle.load(f)
-        with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
+        with self.GCSFS.open(r"gs://ir_project_utils_files/doc_title_dict.pickle", "rb") as f:
             self.doc_title_dict = pickle.load(f)
 
         english_stopwords = frozenset(stopwords.words('english'))
@@ -37,13 +33,13 @@ class Data:
                             "may", "first", "see", "history", "people", "one", "two",
                             "part", "thumb", "including", "second", "following",
                             "many", "however", "would", "became"]
-
         self.all_stopwords = english_stopwords.union(corpus_stopwords)
         self.RE_WORD = re.compile(r"""[\#\@\w](['\-]?\w){2,24}""", re.UNICODE)
 
 
 class BackEnd:
-    def __init__(self, path, Data):
+    def __init__(self, path, Data, part: str):  # part = body/title/anchor
+        self.part = part
         self.Data = Data
         self.read_index(path)
 
@@ -80,6 +76,10 @@ class BackEnd:
                     super_posting_locs[k] = v
 
         return super_posting_locs
+
+    def get_pr(self, wiki_ids):
+        wiki_ids_str = list(map(str, wiki_ids))
+        return [(wid, self.Data.pr_dict[wid]) for wid in wiki_ids_str if wid in self.Data.pr_dict]
 
     def read_index(self, index_file: pickle):
         with open(index_file, 'rb') as f:
@@ -238,7 +238,7 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         for query_id, tokens in queries_to_search.items():
-            words, pls = self.Data.inverted.get_posting_iter(index, tokens)
+            words, pls = self.Data.inverted.get_posting_iter(index, tokens, self.part)
             D, candidate_list = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             vect_query = self.generate_query_tfidf_vector(tokens, index)
             sorted_result = sorted(list(zip(candidate_list, D._mul_vector(vect_query))), key=lambda x: x[1], reverse=True)
@@ -252,15 +252,15 @@ class BackEnd:
 
 def main():
     data_obj = Data()
-    operator = BackEnd(r"index.pkl", data_obj)
-
+    operator = BackEnd(r"index.pkl", data_obj, "body")
     t1 = datetime.datetime.now()
-    query = "computer apple"
-    result = operator.activate_search(query, 10)
-    print(f"\n\nQuery: {query}\nRelevant Docs are:")
-    for id, score, title in result:
-        print(f"    Id:{id}, Score:{score}, title:{title}")
-
+    # query = "computer apple"
+    # result = operator.activate_search(query, 10)
+    # print(f"\n\nQuery: {query}\nRelevant Docs are:")
+    # for id, score, title in result:
+    #     print(f"    Id:{id}, Score:{score}, title:{title}")
+    wiki_ids = [4045432, 4048567, 4050322]
+    print(operator.get_pr(wiki_ids))
     print(f"\n\nTime: {datetime.datetime.now() - t1}")
 
 

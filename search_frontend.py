@@ -10,9 +10,9 @@ class MyFlaskApp(Flask):
 app = MyFlaskApp(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 data = Data()
-body_operator = BackEnd('index.pkl', data)
-# index_operator = BackEnd('title_index.pkl', data)
-# anchor_operator = BackEnd('anchor_index.pkl', data)
+body_operator = BackEnd('index.pkl', data, "body")
+title_operator = BackEnd('title_index.pkl', data, "title")
+# anchor_operator = BackEnd('anchor_index.pkl', data, "anchor")
 
 
 @app.route("/search")
@@ -95,7 +95,7 @@ def search_title():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    # res = index_operator.activate_search(query)
+    res = title_operator.activate_search(query)
     # END SOLUTION
     return jsonify(res)
 
@@ -174,12 +174,20 @@ def get_pageview():
         list of ints:
           list of page view numbers from August 2021 that correrspond to the
           provided list article IDs.
+
+          [13, 2222, 15]
+          [pageview(13), pageview(2222), pageview(15)]
     """
     res = []
     wiki_ids = request.get_json()
     if len(wiki_ids) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
+    with open("pageviews-202108-user.pkl", 'rb') as f:
+        wid2pv = pickle.load(f)
+
+    for doc_id in wiki_ids:
+        res.append(wid2pv[doc_id])
 
     # END SOLUTION
     return jsonify(res)

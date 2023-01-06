@@ -68,12 +68,11 @@ class MultiFileReader:
         self._open_files = {}
         self.GCSFS = gcsfs.GCSFileSystem()
 
-    def read(self, locs, n_bytes):
+    def read(self, locs, n_bytes, part):
         b = []
         for f_name, offset in locs:
             if f_name not in self._open_files:
-                self._open_files[f_name] = self.GCSFS.open(f"gs://{BUCKET_NAME}/postings_gcp/{f_name}", "rb")
-                # self._open_files[f_name] = open(f_name, 'rb')
+                self._open_files[f_name] = self.GCSFS.open(f"gs://{BUCKET_NAME}/{part}_postings/{f_name}", "rb")
             f = self._open_files[f_name]
             f.seek(offset)
             n_read = min(n_bytes, BLOCK_SIZE - offset)
@@ -154,7 +153,7 @@ class InvertedIndex:
         del state['_posting_list']
         return state
 
-    def posting_lists_iter(self, query):
+    def posting_lists_iter(self, query, part):
         """ A generator that reads one posting list from disk and yields 
             a (word:str, [(doc_id:int, tf:int), ...]) tuple.
         """
@@ -162,14 +161,14 @@ class InvertedIndex:
         with closing(MultiFileReader()) as reader:
             for w, locs in filtered_posting_locs.items():
                 posting_list = []
-                b = reader.read(locs, self.df[w] * TUPLE_SIZE)
+                b = reader.read(locs, self.df[w] * TUPLE_SIZE, part)
                 for i in range(self.df[w]):
                     doc_id = int.from_bytes(b[i*TUPLE_SIZE:i*TUPLE_SIZE+4], 'big')
                     tf = int.from_bytes(b[i*TUPLE_SIZE+4:(i+1)*TUPLE_SIZE], 'big')
                     posting_list.append((doc_id, tf))
                 yield w, posting_list
 
-    def get_posting_iter(self, index, query):
+    def get_posting_iter(self, index, query, part):
         """
         This function returning the iterator working with posting list.
 
@@ -177,7 +176,7 @@ class InvertedIndex:
         ----------
         index: inverted index
         """
-        words, pls = zip(*index.posting_lists_iter(query))
+        words, pls = zip(*index.posting_lists_iter(query, part))
         return words, pls
 
     @staticmethod
