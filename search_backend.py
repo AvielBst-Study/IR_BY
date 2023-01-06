@@ -254,11 +254,14 @@ class BackEnd:
         """gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
         -------------
         """
+        #TODO got bad values, DL gives too much weight to long docs
         dot = D._mul_vector(Q)
         # norm_D = scipy.sparse.linalg.norm(D ,ord = 2, axis = 1)
 
-        query_norma = scipy.linalg.norm(Q)
-        scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
+        # query_norma = scipy.linalg.norm(Q)
+        # scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
+        scores = [(doc_id, dot[doc_id] ) for doc_id, doc_length in self.Data.DL.items() if
+                  doc_id < dot.shape[0]]
         return scores
     def get_topN_score_for_queries(self, queries_to_search, index, n):
         """
