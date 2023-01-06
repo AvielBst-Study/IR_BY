@@ -11,6 +11,7 @@ from scipy.sparse import csr_matrix, lil_matrix
 import scipy.sparse
 import scipy.linalg
 from nltk.stem.porter import *
+import gzip
 
 
 # FIXME there is a problem in scores function --- query: Apple computer
@@ -29,10 +30,12 @@ class Data:
         self.stemmer = PorterStemmer()
         self.inverted = InvertedIndex()
         self.bucket_name = "206224503_ir_hw3"
-        with self.GCSFS.open(r"gs://ir_training_index/doc_dl_dict.pickle", "rb") as f:
+        with self.GCSFS.open(r"gs://ir_project_utils_files/DL_dict.pkl", "rb") as f:
             self.DL = pickle.load(f)
-        with self.GCSFS.open(r"gs://ir_training_index/doc_title_dict.pickle", "rb") as f:
+        with self.GCSFS.open(r"gs://ir_project_utils_files/doc_title_dict.pickle", "rb") as f:
             self.doc_title_dict = pickle.load(f)
+        with self.GCSFS.open(r"gs://ir_project_utils_files/pr_part-00000-b609d70d-df98-42e4-8cbf-41d8f23b1310-c000.csv.gz", "rb") as f:
+            self.page_rank = pickle.load(f)
 
         english_stopwords = frozenset(stopwords.words('english'))
         corpus_stopwords = ["category", "references", "also", "external", "links",
@@ -200,7 +203,7 @@ class BackEnd:
             if term in words:
 
                 list_of_doc = pls[words.index(term)]
-                normalized_tfidf = [(doc_id, (freq / self.Data.DL[doc_id]) * math.log(len(self.Data.DL) / index.df[term], 10))
+                normalized_tfidf = [(doc_id, (freq /  math.log(self.Data.DL[doc_id], 10)) * math.log(len(self.Data.DL) / index.df[term], 10))
                                     for doc_id, freq in list_of_doc]
                 # create the doc_id array and score array
                 cur_document_ids, cur_document_scores = zip(*normalized_tfidf)
@@ -273,12 +276,23 @@ class BackEnd:
         """gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
         -------------
         """
+        #FIXME got bad values, DL gives too much weight to long docs
         dot = D._mul_vector(Q)
         # norm_D = scipy.sparse.linalg.norm(D ,ord = 2, axis = 1)
 
-        query_norma = scipy.linalg.norm(Q)
-        scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
+        # query_norma = scipy.linalg.norm(Q)
+        # scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
+        scores = [(doc_id, dot[doc_id] ) for doc_id, doc_length in self.Data.DL.items() if
+                  doc_id < dot.shape[0]]
         return scores
+
+
+    def calculate_page_rank(self, page_list):
+
+        pass
+    def test_score(self,D,Q):
+
+        normalized_Q = Q/scipy.sparse.linalg.norm(Q)
     def get_topN_score_for_queries(self, queries_to_search, index, n):
         """
             Generate a dictionary that gathers for every query its topN score.
@@ -312,17 +326,19 @@ class BackEnd:
 
 def main():
     data_obj = Data()
-    operator = BackEnd(r"index.pkl", data_obj)
+    operator = BackEnd(r"body_index.pkl", data_obj)
+    # testing query
     # operator = BackEnd(r"hw3_index.pkl", data_obj)
     t1 = datetime.datetime.now()
-    query = "computer apple"
-    result = operator.activate_search(query, 10)
+    query = "best marvel movie"
+    result = operator.activate_search(query, 20)
     print(f"\n\nQuery: {query}\nRelevant Docs are:")
     for id, score, title in result:
         print(f"    Id:{id}, Score:{score}, title:{title}")
 
     print(f"\n\nTime: {datetime.datetime.now() - t1}")
-
+    #testing page rank
+    # result = operator.calculate_page_rank([300,25,13])
 
 if __name__ == '__main__':
     main()
