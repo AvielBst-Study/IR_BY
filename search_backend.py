@@ -28,8 +28,8 @@ class Data:
         self.GCSFS = gcsfs.GCSFileSystem()
         self.inverted = InvertedIndex()
         self.bucket_name = "206224503_ir_hw3"
-        with open("pr_dict.pkl", "rb") as f:
-            self.pr_dict = pickle.load(f)
+        # with open("pr_dict.pkl", "rb") as f:
+        #     self.pr_dict = pickle.load(f)
         with self.GCSFS.open(r"gs://ir_project_utils_files/doc_dl_dict.pickle", "rb") as f:
             self.DL = pickle.load(f)
         with self.GCSFS.open(r"gs://ir_project_utils_files/doc_title_dict.pickle", "rb") as f:
@@ -97,8 +97,6 @@ class BackEnd:
         self.Data.inverted.df = data.df
         self.Data.inverted.term_total = data.posting_locs
         self.Data.inverted.posting_locs = data.posting_locs
-
-        #added
         self.Data.term_dict = {term: idx for idx, term in
          enumerate(self.Data.inverted.term_total)}
 
@@ -259,10 +257,10 @@ class BackEnd:
         dot = D._mul_vector(Q)
         # norm_D = scipy.sparse.linalg.norm(D ,ord = 2, axis = 1)
 
-        # query_norma = scipy.linalg.norm(Q)
-        # scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
-        scores = [(doc_id, dot[doc_id] ) for doc_id, doc_length in self.Data.DL.items() if
-                  doc_id < dot.shape[0]]
+        query_norma = scipy.linalg.norm(Q)
+        scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
+        # scores = [(doc_id, dot[doc_id] ) for doc_id, doc_length in self.Data.DL.items() if
+        #           doc_id < dot.shape[0]]
         return scores
     def get_topN_score_for_queries(self, queries_to_search, index, n):
         """
@@ -298,15 +296,15 @@ class BackEnd:
 def main():
     data_obj = Data()
     operator = BackEnd(r"index.pkl", data_obj, "body")
-    t1 = datetime.datetime.now()
-    # query = "computer apple"
-    # result = operator.activate_search(query, 10)
-    # print(f"\n\nQuery: {query}\nRelevant Docs are:")
-    # for id, score, title in result:
-    #     print(f"    Id:{id}, Score:{score}, title:{title}")
-    wiki_ids = [4045432, 4048567, 4050322]
-    print(operator.get_pr(wiki_ids))
-    print(f"\n\nTime: {datetime.datetime.now() - t1}")
+    # t1 = datetime.datetime.now()
+    query = "computer apple"
+    result = operator.activate_search(query, 10)
+    print(f"\n\nQuery: {query}\nRelevant Docs are:")
+    for id, score, title in result:
+        print(f"    Id:{id}, Score:{score}, title:{title}")
+    # wiki_ids = [4045432, 4048567, 4050322]
+    # print(operator.get_pr(wiki_ids))
+    # print(f"\n\nTime: {datetime.datetime.now() - t1}")
 
 
 if __name__ == '__main__':
