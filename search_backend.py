@@ -86,6 +86,7 @@ class BackEnd:
 
         return super_posting_locs
 
+
     def get_pr(self, wiki_ids):
         wiki_ids_str = list(map(str, wiki_ids))
         return [(wid, self.Data.pr_dict[wid]) for wid in wiki_ids_str if wid in self.Data.pr_dict]
