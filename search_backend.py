@@ -322,25 +322,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-
-#######drppped###########
-    # with open("queries_train.json", 'r') as f:
-    #     queries = json.load(f)
-    # acc_scores = []
-    # TOTAL_TIME = datetime.timedelta()
-    # # for query, real in queries.items():
-    # # print(f"Search for query: {query}")
-    # query = "Ciggarets"
-    # t1 = datetime.datetime.now()
-    # result = operator.activate_search(query, 20)
-    # if len(result) == 0:
-    #     print('got no res')
-    #     return 0
-    # t2 = datetime.datetime.now() - t1
-    # TOTAL_TIME += t2
-    # # result = set([int(element[0]) for element in result])
-    # # inters = result.intersection(set(real))
-    # # acc_scores.append(len(inters)/len(result))
-    # # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
-    # print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
-
