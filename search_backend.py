@@ -291,7 +291,7 @@ def map_at_40(retrieved_documents, relevant_documents):
     precision_sum = 0.0
     num_relevant = 0
     for i, doc in enumerate(retrieved_documents):
-        if doc[0] in relevant_documents:
+        if int(doc[0]) in relevant_documents:
             num_relevant += 1
             precision_sum += num_relevant / (i + 1)
     if num_relevant == 0:
