@@ -273,21 +273,50 @@ class BackEnd:
         return self.get_titles(tokenized_query,self.Data.inverted)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+def map_at_40(retrieved_documents, relevant_documents):
+    retrieved_documents = retrieved_documents[:40]
+    relevant_documents = set(relevant_documents)
+    precision_sum = 0.0
+    num_relevant = 0
+    for i, doc in enumerate(retrieved_documents):
+        if doc[0] in relevant_documents:
+            num_relevant += 1
+            precision_sum += num_relevant / (i + 1)
+    if num_relevant == 0:
+        return 0.0
+    return precision_sum / min(num_relevant, 40)
+
+
+
 def main():
     data_obj = Data()
     operator = BackEnd(r"title_index.pkl", data_obj, "title")
 
-    query = "Ciggarets"
-    # query = ""
-    t1 = datetime.datetime.now()
-    result = operator.activate_title_search(query)
-    # result = operator.activate_search(query)
-    if len(result) == 0:
-        print('got no res')
-        return 0
-    t2 = datetime.datetime.now() - t1
-    print(f"run in {t2}")
-
+    with open("queries_train.json", 'r') as f:
+        queries = json.load(f)
+    acc_scores = []
+    TOTAL_TIME = datetime.timedelta()
+    for query, real in queries.items():
+        print(f"Search for query: {query}")
+        t1 = datetime.datetime.now()
+        result = operator.activate_title_search(query)
+        map40 = map_at_40(result,real)
+        print(f"score: {map40}")
+        acc_scores.append(map40)
+    # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
+    print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
 
 
 if __name__ == '__main__':
@@ -314,3 +343,4 @@ if __name__ == '__main__':
     # # acc_scores.append(len(inters)/len(result))
     # # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
     # print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
+
