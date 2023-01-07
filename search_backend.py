@@ -13,14 +13,6 @@ import scipy.linalg
 from nltk.stem.porter import *
 
 
-# FIXME there is a problem in scores function --- query: Apple computer
-#   ours: (23500355, 0.043398284290206174)
-#   theirs: (254496, 0.0009996970927817355)
-
-# TODO change D in generate_document_tfidf_matrix to coo_matrix -- ?
-# TODO set dict generate_document_tfidf_matrix to of vectorizer -- ?
-
-
 class Data:
     def __init__(self):
         self.terms_in_train_set = []
@@ -87,7 +79,6 @@ class BackEnd:
                     super_posting_locs[k] = v
 
         return super_posting_locs
-
 
     def get_pr(self, wiki_ids):
         wiki_ids_str = list(map(str, wiki_ids))
@@ -158,7 +149,7 @@ class BackEnd:
         counter = Counter(query_to_search)
         for token in np.unique(query_to_search):
             if token in index.term_total.keys():  # avoid terms that do not appear in the index.
-                tf = counter[token]   # term frequency divded by the length of the query
+                tf = counter[token]  # term frequency divded by the length of the query
                 df = index.df[token]
                 idf = math.log((len(self.Data.DL)) / (df + epsilon), 10)  # smoothing
                 ind = term_vector.index(token)
@@ -255,24 +246,9 @@ class BackEnd:
         """gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
         -------------
         """
-
-        vals = [254496, 50865995, 5285468, 5653238, 3356874, 345676, 2275, 4478297, 2593693, 3608414, 18640, 248101, 15183570, 20647724,
-    1159939, 17826747, 619983, 856, 46728817, 2116, 1492625, 77118, 32327247, 15357987, 400593, 17997437, 1005263, 345354, 2020710, 660310,
-    1344, 19006979, 15295713, 2786155, 2117, 21694, 233780, 5078775, 73262, 21347643, 27848, 548115]
-        #TODO got bad values, DL gives too much weight to long docs
         dot = D._mul_vector(Q)
         query_norm = scipy.linalg.norm(Q)
-        t1 = datetime.datetime.now()
-        # scores = [(doc_id ,dot[doc_id]/ (query_norm*doc_norm) )for doc_id, doc_norm in self.Data.doc_norm_dict.items() if doc_id < dot.shape[0]]
-        scores = []
-        for doc_id, doc_norm in self.Data.doc_norm_dict.items():
-            if doc_id < dot.shape[0]:
-                if doc_id in vals:
-                    x = 10
-                scores.append((doc_id ,dot[doc_id]/ (query_norm*doc_norm)))
-            else:
-                break
-        print(f"time for list comp {datetime.datetime.now() - t1}")
+        scores = [(doc_id, dot[doc_id]/(query_norm*doc_norm))for doc_id, doc_norm in self.Data.doc_norm_dict.items() if doc_id < dot.shape[0] and dot[doc_id]/(query_norm*doc_norm) > 0]
 
         return scores
 
@@ -311,15 +287,21 @@ class BackEnd:
 def main():
     data_obj = Data()
     operator = BackEnd(r"body_index.pkl", data_obj, "body")
-    t1 = datetime.datetime.now()
-    query = "computer apple"
-    result = operator.activate_search(query, 10)
-    print(f"\n\nQuery: {query}\nRelevant Docs are:")
-    for id, score, title in result:
-        print(f"    Id:{id}, Score:{score}, title:{title}")
-    # wiki_ids = [4045432, 4048567, 4050322]
-    # print(operator.get_pr(wiki_ids))
-    print(f"\n\nTime: {datetime.datetime.now() - t1}")
+    with open("queries_train.json", 'r') as f:
+        queries = json.load(f)
+    acc_scores = []
+    TOTAL_TIME = datetime.timedelta()
+    for query, real in queries.items():
+        print(f"Search for query: {query}")
+        t1 = datetime.datetime.now()
+        result = operator.activate_search(query, 20)
+        t2 = datetime.datetime.now() - t1
+        TOTAL_TIME += t2
+        result = set([int(element[0]) for element in result])
+        inters = result.intersection(set(real))
+        acc_scores.append(len(inters)/len(result))
+        print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
+    print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
 
 
 if __name__ == '__main__':
