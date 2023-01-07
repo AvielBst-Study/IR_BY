@@ -30,10 +30,12 @@ class Data:
         self.bucket_name = "206224503_ir_hw3"
         # with open("pr_dict.pkl", "rb") as f:
         #     self.pr_dict = pickle.load(f)
-        with self.GCSFS.open(r"gs://ir_project_utils_files/doc_dl_dict.pickle", "rb") as f:
+        with self.GCSFS.open(r"gs://ir_project_utils_files/DL_dict.pkl", "rb") as f:
             self.DL = pickle.load(f)
         with self.GCSFS.open(r"gs://ir_project_utils_files/doc_title_dict.pickle", "rb") as f:
             self.doc_title_dict = pickle.load(f)
+        with self.GCSFS.open(r"gs://ir_project_utils_files/docs_norm_dict.pkl", "rb") as f:
+            self.doc_norm_dict = pickle.load(f)
 
         english_stopwords = frozenset(stopwords.words('english'))
         corpus_stopwords = ["category", "references", "also", "external", "links",
@@ -156,7 +158,7 @@ class BackEnd:
         counter = Counter(query_to_search)
         for token in np.unique(query_to_search):
             if token in index.term_total.keys():  # avoid terms that do not appear in the index.
-                tf = counter[token] / len(query_to_search)  # term frequency divded by the length of the query
+                tf = counter[token]   # term frequency divded by the length of the query
                 df = index.df[token]
                 idf = math.log((len(self.Data.DL)) / (df + epsilon), 10)  # smoothing
                 ind = term_vector.index(token)
@@ -194,7 +196,7 @@ class BackEnd:
             if term in words:
 
                 list_of_doc = pls[words.index(term)]
-                normalized_tfidf = [(doc_id, (freq / self.Data.DL[doc_id]) * math.log(len(self.Data.DL) / index.df[term], 10))
+                normalized_tfidf = [(doc_id, freq * math.log(len(self.Data.DL) / index.df[term], 10))
                                     for doc_id, freq in list_of_doc]
                 # create the doc_id array and score array
                 cur_document_ids, cur_document_scores = zip(*normalized_tfidf)
@@ -253,15 +255,27 @@ class BackEnd:
         """gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
         -------------
         """
+
+        vals = [254496, 50865995, 5285468, 5653238, 3356874, 345676, 2275, 4478297, 2593693, 3608414, 18640, 248101, 15183570, 20647724,
+    1159939, 17826747, 619983, 856, 46728817, 2116, 1492625, 77118, 32327247, 15357987, 400593, 17997437, 1005263, 345354, 2020710, 660310,
+    1344, 19006979, 15295713, 2786155, 2117, 21694, 233780, 5078775, 73262, 21347643, 27848, 548115]
         #TODO got bad values, DL gives too much weight to long docs
         dot = D._mul_vector(Q)
-        # norm_D = scipy.sparse.linalg.norm(D ,ord = 2, axis = 1)
+        query_norm = scipy.linalg.norm(Q)
+        t1 = datetime.datetime.now()
+        # scores = [(doc_id ,dot[doc_id]/ (query_norm*doc_norm) )for doc_id, doc_norm in self.Data.doc_norm_dict.items() if doc_id < dot.shape[0]]
+        scores = []
+        for doc_id, doc_norm in self.Data.doc_norm_dict.items():
+            if doc_id < dot.shape[0]:
+                if doc_id in vals:
+                    x = 10
+                scores.append((doc_id ,dot[doc_id]/ (query_norm*doc_norm)))
+            else:
+                break
+        print(f"time for list comp {datetime.datetime.now() - t1}")
 
-        query_norma = scipy.linalg.norm(Q)
-        scores = [(doc_id ,dot[doc_id]/ (query_norma*doc_length) )for doc_id, doc_length in self.Data.DL.items() if doc_id < dot.shape[0]]
-        # scores = [(doc_id, dot[doc_id] ) for doc_id, doc_length in self.Data.DL.items() if
-        #           doc_id < dot.shape[0]]
         return scores
+
     def get_topN_score_for_queries(self, queries_to_search, index, n):
         """
             Generate a dictionary that gathers for every query its topN score.
@@ -284,7 +298,8 @@ class BackEnd:
             words, pls = self.Data.inverted.get_posting_iter(index, tokens, self.part)
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             vect_query = self.generate_query_tfidf_vector(tokens, index)
-            sorted_result = sorted(self.score(D,vect_query), key=lambda x: x[1], reverse=True)
+            scores = self.score(D,vect_query)
+            sorted_result = sorted(scores, key=lambda x: x[1], reverse=True)
             retrieved_docs = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in sorted_result]
             return self.get_top_n(retrieved_docs, n)
 
@@ -295,8 +310,8 @@ class BackEnd:
 
 def main():
     data_obj = Data()
-    operator = BackEnd(r"index.pkl", data_obj, "body")
-    # t1 = datetime.datetime.now()
+    operator = BackEnd(r"body_index.pkl", data_obj, "body")
+    t1 = datetime.datetime.now()
     query = "computer apple"
     result = operator.activate_search(query, 10)
     print(f"\n\nQuery: {query}\nRelevant Docs are:")
@@ -304,7 +319,7 @@ def main():
         print(f"    Id:{id}, Score:{score}, title:{title}")
     # wiki_ids = [4045432, 4048567, 4050322]
     # print(operator.get_pr(wiki_ids))
-    # print(f"\n\nTime: {datetime.datetime.now() - t1}")
+    print(f"\n\nTime: {datetime.datetime.now() - t1}")
 
 
 if __name__ == '__main__':
