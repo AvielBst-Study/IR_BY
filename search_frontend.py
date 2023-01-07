@@ -95,7 +95,7 @@ def search_title():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    res = title_operator.activate_search(query)
+    res = title_operator.activate_title_search(query)
     # END SOLUTION
     return jsonify(res)
 

@@ -164,7 +164,7 @@ class InvertedIndex:
             a (word:str, [(doc_id:int, tf:int), ...]) tuple.
         """
         filtered_posting_locs = {w : self.posting_locs[w] for w in query}
-        if len(set(*filtered_posting_locs.values())) == 0:
+        if all([len(pl) for pl in filtered_posting_locs.values()]) == 0:
             yield [],[]
         else:
             with closing(MultiFileReader()) as reader:

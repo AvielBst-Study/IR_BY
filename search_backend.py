@@ -142,9 +142,8 @@ class BackEnd:
 
         Returns:
         -----------
-        dictionary of candidates. In the following format:
-                                                                key: pair (doc_id,term)
-                                                                value: tfidf score.
+        3 arrays of candidates. In the following format: term_array, document_ids, document_scores
+
         """
         term_array = None
         document_ids = None
@@ -253,34 +252,65 @@ class BackEnd:
             retrieved_docs = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in sorted_result]
             return self.get_top_n(retrieved_docs, n)
 
+    def get_titles(self, query_to_search, index):
+        """
+        ---------
+        returns: the titles by the order of distinct term frequency in the query
+        """
+        words, pls = self.Data.inverted.get_posting_iter(index, query_to_search, self.part)
+        term_array, document_ids, document_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
+        title_rank_dict = Counter(document_ids)
+        sorted_results = [(str(doc_id), str(score),self.Data.doc_title_dict[doc_id]) for doc_id , score in title_rank_dict.most_common()]
+
+        return sorted_results
+
     def activate_search(self, query, n=0):
         tokenized_query = self.tokenize(query)
         return self.get_topN_score_for_queries({0: tokenized_query}, self.Data.inverted, n)
 
+    def activate_title_search(self,query):
+        tokenized_query = self.tokenize(query)
+        return self.get_titles(tokenized_query,self.Data.inverted)
+
 
 def main():
     data_obj = Data()
-    operator = BackEnd(r"body_index.pkl", data_obj, "body")
-    with open("queries_train.json", 'r') as f:
-        queries = json.load(f)
-    acc_scores = []
-    TOTAL_TIME = datetime.timedelta()
-    # for query, real in queries.items():
-    # print(f"Search for query: {query}")
+    operator = BackEnd(r"title_index.pkl", data_obj, "title")
+
     query = "Ciggarets"
+    # query = ""
     t1 = datetime.datetime.now()
-    result = operator.activate_search(query, 20)
+    result = operator.activate_title_search(query)
+    # result = operator.activate_search(query)
     if len(result) == 0:
         print('got no res')
         return 0
     t2 = datetime.datetime.now() - t1
-    TOTAL_TIME += t2
-    # result = set([int(element[0]) for element in result])
-    # inters = result.intersection(set(real))
-    # acc_scores.append(len(inters)/len(result))
-    # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
-    print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
+    print(f"run in {t2}")
+
 
 
 if __name__ == '__main__':
     main()
+
+
+#######drppped###########
+    # with open("queries_train.json", 'r') as f:
+    #     queries = json.load(f)
+    # acc_scores = []
+    # TOTAL_TIME = datetime.timedelta()
+    # # for query, real in queries.items():
+    # # print(f"Search for query: {query}")
+    # query = "Ciggarets"
+    # t1 = datetime.datetime.now()
+    # result = operator.activate_search(query, 20)
+    # if len(result) == 0:
+    #     print('got no res')
+    #     return 0
+    # t2 = datetime.datetime.now() - t1
+    # TOTAL_TIME += t2
+    # # result = set([int(element[0]) for element in result])
+    # # inters = result.intersection(set(real))
+    # # acc_scores.append(len(inters)/len(result))
+    # # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
+    # print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
