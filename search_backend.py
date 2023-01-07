@@ -46,39 +46,6 @@ class BackEnd:
         self.Data = Data
         self.read_index(path)
 
-    def get_train_query_terms(self):
-        """
-        Using queries_train.json file
-        Returns:
-            list of unique terms (not stopwords) that appear in one of the train queries
-        """
-        with open("queries_train.json") as f:
-            json_data = json.load(f)
-            terms_in_train_set = []
-            for query, wiki_id in json_data.items():
-                terms = query.split()
-                terms_in_train_set += [t if t[-1] != '?' else t[:-1] for t in terms]
-            self.terms_in_train_set = list(
-                set([t.lower() for t in terms_in_train_set if t.lower() not in self.Data.stopwords]))
-
-        return self.terms_in_train_set
-
-    def get_posting_locs_from_pkls(self):
-        files = self.Data.GCSFS.ls(f"gs://{self.Data.bucket_name}/postings_gcp/")
-        files = [f for f in files if f.endswith('.pickle')]
-        super_posting_locs = defaultdict(list)
-        for file in files:
-            with self.Data.GCSFS.open(f"gs://{file}", "rb") as f:
-                # Load the data from the pickle file into a dictionary
-                posting_locs_list = pickle.load(f)
-
-            for k, v in posting_locs_list.items():
-                if k in super_posting_locs:
-                    super_posting_locs[k] = super_posting_locs.get(k) + v
-                else:
-                    super_posting_locs[k] = v
-
-        return super_posting_locs
 
     def get_pr(self, wiki_ids):
         wiki_ids_str = list(map(str, wiki_ids))
@@ -182,13 +149,13 @@ class BackEnd:
         term_array = None
         document_ids = None
         document_scores = None
-        # candidates = {}
         for term in np.unique(query_to_search):
             if term in words:
 
                 list_of_doc = pls[words.index(term)]
                 normalized_tfidf = [(doc_id, freq * math.log(len(self.Data.DL) / index.df[term], 10))
                                     for doc_id, freq in list_of_doc]
+
                 # create the doc_id array and score array
                 cur_document_ids, cur_document_scores = zip(*normalized_tfidf)
                 cur_document_ids, cur_document_scores = np.asarray(cur_document_ids), np.asarray(cur_document_scores)
@@ -206,6 +173,7 @@ class BackEnd:
                     term_array = np.concatenate([term_array,cur_term_array])
                     document_scores = np.concatenate([document_scores, cur_document_scores])
                     document_ids = np.concatenate([document_ids, cur_document_ids])
+
         return term_array, document_ids, document_scores
 
 
@@ -234,8 +202,9 @@ class BackEnd:
         term_id, candidate_id, candidate_score = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
 
         total_vocab_size = len(index.term_total)
-        max_doc_id = np.max(candidate_id)#max(self.Data.DL.keys())#TODO change to doc_id dictionary
-
+        max_doc_id = np.max(candidate_id)#TODO change to doc_id dictionary
+        if max_doc_id is None:
+            return []
         D = scipy.sparse.coo_matrix((candidate_score, (candidate_id, term_id)),
                                     shape = (max_doc_id + 1, total_vocab_size + 1))
         return D
@@ -271,7 +240,12 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         for query_id, tokens in queries_to_search.items():
+            t1 = datetime.datetime.now()
             words, pls = self.Data.inverted.get_posting_iter(index, tokens, self.part)
+            print(f"after change : {datetime.datetime.now() - t1}")
+
+            if len(pls[0]) == 0:
+                return []
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             vect_query = self.generate_query_tfidf_vector(tokens, index)
             scores = self.score(D,vect_query)
@@ -291,16 +265,20 @@ def main():
         queries = json.load(f)
     acc_scores = []
     TOTAL_TIME = datetime.timedelta()
-    for query, real in queries.items():
-        print(f"Search for query: {query}")
-        t1 = datetime.datetime.now()
-        result = operator.activate_search(query, 20)
-        t2 = datetime.datetime.now() - t1
-        TOTAL_TIME += t2
-        result = set([int(element[0]) for element in result])
-        inters = result.intersection(set(real))
-        acc_scores.append(len(inters)/len(result))
-        print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
+    # for query, real in queries.items():
+    # print(f"Search for query: {query}")
+    query = "Ciggarets"
+    t1 = datetime.datetime.now()
+    result = operator.activate_search(query, 20)
+    if len(result) == 0:
+        print('got no res')
+        return 0
+    t2 = datetime.datetime.now() - t1
+    TOTAL_TIME += t2
+    # result = set([int(element[0]) for element in result])
+    # inters = result.intersection(set(real))
+    # acc_scores.append(len(inters)/len(result))
+    # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
     print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
 
 

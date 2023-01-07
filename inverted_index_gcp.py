@@ -153,22 +153,31 @@ class InvertedIndex:
         del state['_posting_list']
         return state
 
+
+    # def read_posting_list(self,inverted, word, part):
+    #     """ gets a posting locs for """
+    #     locs = inverted.posting_locs[word]
+    #
+    #     pass
     def posting_lists_iter(self, query, part):
         """ A generator that reads one posting list from disk and yields 
             a (word:str, [(doc_id:int, tf:int), ...]) tuple.
         """
-        filtered_posting_locs = {k: v for k, v in self.posting_locs.items() if k in query}
-        with closing(MultiFileReader()) as reader:
-            for w, locs in filtered_posting_locs.items():
-                posting_list = []
-                b = reader.read(locs, self.df[w] * TUPLE_SIZE, part)
-                for i in range(self.df[w]):
-                    doc_id = int.from_bytes(b[i*TUPLE_SIZE:i*TUPLE_SIZE+4], 'big')
-                    tf = int.from_bytes(b[i*TUPLE_SIZE+4:(i+1)*TUPLE_SIZE], 'big')
-                    posting_list.append((doc_id, tf))
-                yield w, posting_list
+        filtered_posting_locs = {w : self.posting_locs[w] for w in query}
+        if len(set(*filtered_posting_locs.values())) == 0:
+            yield [],[]
+        else:
+            with closing(MultiFileReader()) as reader:
+                for w, locs in filtered_posting_locs.items():
+                    posting_list = []
+                    b = reader.read(locs, self.df[w] * TUPLE_SIZE, part)
+                    for i in range(self.df[w]):
+                        doc_id = int.from_bytes(b[i*TUPLE_SIZE:i*TUPLE_SIZE+4], 'big')
+                        tf = int.from_bytes(b[i*TUPLE_SIZE+4:(i+1)*TUPLE_SIZE], 'big')
+                        posting_list.append((doc_id, tf))
+                    yield w, posting_list
 
-    def get_posting_iter(self, index, query, part):
+    def get_posting_iter(self, index, query, part ):
         """
         This function returning the iterator working with posting list.
 
