@@ -29,6 +29,7 @@ class Data:
         with self.GCSFS.open(r"gs://ir_project_utils_files/docs_norm_dict.pkl", "rb") as f:
             self.doc_norm_dict = pickle.load(f)
 
+
         english_stopwords = frozenset(stopwords.words('english'))
         corpus_stopwords = ["category", "references", "also", "external", "links",
                             "may", "first", "see", "history", "people", "one", "two",
@@ -41,24 +42,25 @@ class Data:
 
 
 class BackEnd:
-    def __init__(self, path, Data, part: str):  # part = body/title/anchor
+    def __init__(self, Data, part: str):  # part = body/title/anchor
         self.part = part
         self.Data = Data
-        self.read_index(path)
+        self.read_index()
 
 
     def get_pr(self, wiki_ids):
         wiki_ids_str = list(map(str, wiki_ids))
         return [(wid, self.Data.pr_dict[wid]) for wid in wiki_ids_str if wid in self.Data.pr_dict]
 
-    def read_index(self, index_file: pickle):
-        with open(index_file, 'rb') as f:
+    def read_index(self):
+        with self.Data.GCSFS.open(f"gs://ir_project_utils_files/{self.part}_index.pkl", 'rb') as f:
             data = pickle.load(f)
         self.Data.inverted.df = data.df
         self.Data.inverted.term_total = data.posting_locs
         self.Data.inverted.posting_locs = data.posting_locs
         self.Data.term_dict = {term: idx for idx, term in
          enumerate(self.Data.inverted.term_total)}
+
 
     def tokenize(self, text, use_stemming=False):
         tokens = [token.group() for token in self.Data.RE_WORD.finditer(text.lower())]
@@ -211,7 +213,9 @@ class BackEnd:
 
 
     def score(self,D,Q):
-        """gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
+        """
+        gets a doc tfidf matrix and retruns the values of the similarity score of D and Q
+        using cosine similarity
         -------------
         """
         dot = D._mul_vector(Q)
@@ -260,7 +264,9 @@ class BackEnd:
         words, pls = self.Data.inverted.get_posting_iter(index, query_to_search, self.part)
         term_array, document_ids, document_scores = self.get_candidate_documents_and_scores(query_to_search, index, words, pls)
         title_rank_dict = Counter(document_ids)
-        sorted_results = [(str(doc_id), str(score),self.Data.doc_title_dict[doc_id]) for doc_id , score in title_rank_dict.most_common()]
+
+        sorted_results = [(str(doc_id), str(score),self.Data.doc_title_dict[doc_id]) for doc_id , score in title_rank_dict.most_common()
+                          if doc_id in self.Data.doc_title_dict]
 
         return sorted_results
 
@@ -271,6 +277,7 @@ class BackEnd:
     def activate_title_search(self,query):
         tokenized_query = self.tokenize(query)
         return self.get_titles(tokenized_query,self.Data.inverted)
+
 
 
 
@@ -301,22 +308,98 @@ def map_at_40(retrieved_documents, relevant_documents):
 
 
 def main():
-    data_obj = Data()
-    operator = BackEnd(r"title_index.pkl", data_obj, "title")
+    data_body = Data()
+    data_title = Data()
+    data_anchor = Data()
+    body_operator = BackEnd(data_body, "body")
+    title_operator = BackEnd(data_title, "title")
+    anchor_operator = BackEnd(data_anchor, "anchor")
+
 
     with open("queries_train.json", 'r') as f:
         queries = json.load(f)
     acc_scores = []
+    timelist = []
     TOTAL_TIME = datetime.timedelta()
     for query, real in queries.items():
         print(f"Search for query: {query}")
         t1 = datetime.datetime.now()
-        result = operator.activate_title_search(query)
-        map40 = map_at_40(result,real)
+
+        #weights :body, title , anchor
+        weights = [1,130,80]
+
+        ######query#########
+        #body
+        docs = {}
+
+        res_body = body_operator.activate_search(query)[:4000]
+        for doc in res_body:
+            docs[doc[0]] = weights[0] * doc[1]
+        in_body = {body[0] for body in res_body}
+        numret1 = len(res_body)
+        res_body = res_body[:100]
+
+        #title
+        res_title = title_operator.activate_title_search(query)[:10000]
+        for doc in res_title:
+            if doc[0] in docs:
+                docs[doc[0]] += weights[1] * doc[1]
+            else:
+                docs[doc[0]] = weights[1] * doc[1]
+
+        in_title = {title[0] for title in res_title}
+        numret2 = len(res_title)
+        res_title = res_title[:100]
+
+        #anchor
+        res_anchor = anchor_operator.activate_title_search(query)[:4000]
+        for doc in res_anchor:
+            if doc[0] in docs:
+                docs[doc[0]] += weights[2] * doc[1]
+            else:
+                docs[doc[0]] = weights[2] * doc[1]
+        in_anchor = {anchor[0] for anchor in res_anchor}
+        numret3 = len(res_anchor)
+
+
+        #make a list from the docs
+        docs = [(doc_id,score) for doc_id, score in docs.items()]
+        docs = sorted(docs, key= lambda x:x[1], reverse=True)
+
+        #intersections
+        title_body = in_title.intersection(in_body)
+        title_anchor = in_title.intersection(in_anchor)
+        anchor_body = in_anchor.intersection(in_body)
+
+        in_half = title_body.union(title_anchor).union(anchor_body)
+        in_all = title_body.intersection(title_anchor)
+
+        all_ = list(set(res_title + res_body + res_anchor))
+        res = []
+            ############remove#############
+        print(f"number of docs retrived:all: {len(all_)}\nbody: {numret1}  title: {numret2}, anchor: {numret3}")
+        print(f"{len(in_all)} of docs are in all classes")
+        print(f"reached_here in both got {len(res)}")
+
+        if len(in_all) < 15:
+            res = list(in_all.union(in_half))
+            if len(res) < 15:
+                res += res_body[:15]
+
+                ################
+        res = docs[:40]
+        ######query#########
+        t2 = datetime.datetime.now() - t1
+        timelist.append(t2)
+        TOTAL_TIME += t2
+        map40 = map_at_40(res,real)
         print(f"score: {map40}")
         acc_scores.append(map40)
-    # print(f"    Time:{t2}\n    Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
-    print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}")
+        print(f"    Time:{t2}\n ")#   Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
+    print(f"\n{'*'*20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}\n mean time: {np.mean(timelist)}")
+
+
+
 
 
 if __name__ == '__main__':
