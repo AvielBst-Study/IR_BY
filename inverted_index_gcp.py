@@ -154,18 +154,15 @@ class InvertedIndex:
         return state
 
 
-    # def read_posting_list(self,inverted, word, part):
-    #     """ gets a posting locs for """
-    #     locs = inverted.posting_locs[word]
-    #
-    #     pass
+
     def posting_lists_iter(self, query, part):
         """ A generator that reads one posting list from disk and yields 
             a (word:str, [(doc_id:int, tf:int), ...]) tuple.
         """
+        words,PL = [],[]
         filtered_posting_locs = {w : self.posting_locs[w] for w in query}
         if all([len(pl) for pl in filtered_posting_locs.values()]) == 0:
-            yield [],[]
+            return [],[]
         else:
             with closing(MultiFileReader()) as reader:
                 for w, locs in filtered_posting_locs.items():
@@ -175,7 +172,9 @@ class InvertedIndex:
                         doc_id = int.from_bytes(b[i*TUPLE_SIZE:i*TUPLE_SIZE+4], 'big')
                         tf = int.from_bytes(b[i*TUPLE_SIZE+4:(i+1)*TUPLE_SIZE], 'big')
                         posting_list.append((doc_id, tf))
-                    yield w, posting_list
+                    words.append(w)
+                    PL.append(posting_list)
+                return words, PL
 
     def get_posting_iter(self, index, query, part ):
         """
@@ -185,7 +184,7 @@ class InvertedIndex:
         ----------
         index: inverted index
         """
-        words, pls = zip(*index.posting_lists_iter(query, part))
+        words, pls = index.posting_lists_iter(query, part)
         return words, pls
 
     @staticmethod
