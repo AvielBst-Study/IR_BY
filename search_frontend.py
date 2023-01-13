@@ -12,7 +12,7 @@ app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 data = Data()
 body_operator = BackEnd('index.pkl', data, "body")
 title_operator = BackEnd('title_index.pkl', data, "title")
-# anchor_operator = BackEnd('anchor_index.pkl', data, "anchor")
+anchor_operator = BackEnd('anchor_index.pkl', data, "anchor")
 
 
 @app.route("/search")
@@ -38,7 +38,12 @@ def search():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-
+    res_body = body_operator.activate_search(query)
+    res_title = title_operator.activate_title_search(query)
+    res_anchor = anchor_operator.activate_title_search(query)
+    res = set(res_title+res_body+res_anchor)
+    if len(res) < 5:
+        return res_body[:20]
     # END SOLUTION
     return jsonify(res)
 
