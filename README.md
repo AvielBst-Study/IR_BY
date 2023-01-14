@@ -1,5 +1,5 @@
 # BY - Search Engine
-by: Aviel Ben Siman Tov and Ken Yaggel
+by: Aviel Ben Siman Tov and Ken Yaggel 
 ## search_frontend
 On the top of the script, we load all relevant files we prepared beforehand
 * DL - document's lengths
