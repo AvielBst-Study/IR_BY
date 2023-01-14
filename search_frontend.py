@@ -7,14 +7,25 @@ class MyFlaskApp(Flask):
         super(MyFlaskApp, self).run(host=host, port=port, debug=debug, **options)
 
 
+with open("IR/DL_dict.pkl", "rb") as f:
+    DL = pickle.load(f)
+with open("IR/pr_dict.pkl", "rb") as f:
+    pr_dict = pickle.load(f)
+with open("IR/doc_title_dict.pickle", "rb") as f:
+    doc_title_dict = pickle.load(f)
+with open("IR/docs_norm_dict.pkl", "rb") as f:
+    doc_norm_dict = pickle.load(f)
+with open("IR/pageviews-202108-user.pkl", "rb") as f:
+    pv_dict = pickle.load(f)
+
 app = MyFlaskApp(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 data_body = Data()
 data_title = Data()
 data_anchor = Data()
-body_operator = BackEnd(data_body, "body")
-title_operator = BackEnd(data_title, "title")
-anchor_operator = BackEnd(data_anchor, "anchor")
+body_operator = BackEnd(data_body, "body", pr_dict, pv_dict, DL, doc_title_dict, doc_norm_dict)
+title_operator = BackEnd(data_title, "title", pr_dict, pv_dict, DL, doc_title_dict, doc_norm_dict)
+anchor_operator = BackEnd(data_anchor, "anchor", pr_dict, pv_dict, DL, doc_title_dict, doc_norm_dict)
 
 
 @app.route("/search")
@@ -70,7 +81,7 @@ def search():
     # change get document title from id
 
     res = docs[:40]
-    res = [(doc_id,title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id,_ in res]
+    res = [(doc_id, title_operator.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
 
     if len(res) < 5:
         return res_body[:20]
@@ -100,7 +111,7 @@ def search_body():
         return jsonify(res)
     # BEGIN SOLUTION
     res = body_operator.activate_search(query, n=10)
-    res = [(doc_id, title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
+    res = [(doc_id, title_operator.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
     # END SOLUTION
     return jsonify(res)
 
@@ -132,7 +143,7 @@ def search_title():
         return jsonify(res)
     # BEGIN SOLUTION
     res = title_operator.activate_title_search(query)
-    res = [(doc_id, title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
+    res = [(doc_id, title_operator.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
     # END SOLUTION
     return jsonify(res)
 
@@ -164,7 +175,7 @@ def search_anchor():
         return jsonify(res)
     # BEGIN SOLUTION
     res = anchor_operator.activate_title_search(query)
-    res = [(doc_id, title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
+    res = [(doc_id, title_operator.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
     # END SOLUTION
     return jsonify(res)
 
@@ -191,7 +202,7 @@ def get_pagerank():
         return jsonify(res)
     # BEGIN SOLUTION
     wiki_ids = list(map(str, wiki_ids))
-    res = [(int(wid), Data.pr_dict[wid]) for wid in wiki_ids if wid in Data.pr_dict]
+    res = [(int(wid), pr_dict[wid]) for wid in wiki_ids if wid in pr_dict]
     # END SOLUTION
     return jsonify(res)
 
@@ -222,11 +233,9 @@ def get_pageview():
     if len(wiki_ids) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    with open("pageviews-202108-user.pkl", 'rb') as f:
-        wid2pv = pickle.load(f)
 
     for doc_id in wiki_ids:
-        res.append(wid2pv[doc_id])
+        res.append(pv_dict[int(doc_id)])
 
     # END SOLUTION
     return jsonify(res)
