@@ -9,10 +9,12 @@ class MyFlaskApp(Flask):
 
 app = MyFlaskApp(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-data = Data()
-body_operator = BackEnd('index.pkl', data, "body")
-title_operator = BackEnd('title_index.pkl', data, "title")
-anchor_operator = BackEnd('anchor_index.pkl', data, "anchor")
+data_body = Data()
+data_title = Data()
+data_anchor = Data()
+body_operator = BackEnd(data_body, "body")
+title_operator = BackEnd(data_title, "title")
+anchor_operator = BackEnd(data_anchor, "anchor")
 
 
 @app.route("/search")
@@ -131,7 +133,7 @@ def search_anchor():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-
+    res = anchor_operator.activate_title_search(query)
     # END SOLUTION
     return jsonify(res)
 
@@ -157,9 +159,8 @@ def get_pagerank():
     if len(wiki_ids) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-
-
-
+    wiki_ids = list(map(str, wiki_ids))
+    res = [(int(wid), Data.pr_dict[wid]) for wid in wiki_ids if wid in Data.pr_dict]
     # END SOLUTION
     return jsonify(res)
 

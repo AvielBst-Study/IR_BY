@@ -66,13 +66,14 @@ class MultiFileReader:
     """ Sequential binary reader of multiple files of up to BLOCK_SIZE each. """
     def __init__(self):
         self._open_files = {}
-        self.GCSFS = gcsfs.GCSFileSystem()
+        # self.GCSFS = gcsfs.GCSFileSystem() TODO: change to retrun to gcsfs
 
     def read(self, locs, n_bytes, part):
         b = []
         for f_name, offset in locs:
             if f_name not in self._open_files:
-                self._open_files[f_name] = self.GCSFS.open(f"gs://{BUCKET_NAME}/{part}_postings/{f_name}", "rb")
+                # self._open_files[f_name] = self.GCSFS.open(f"gs://{BUCKET_NAME}/{part}_postings/{f_name}", "rb")TODO: change to retrun to gcsfs
+                self._open_files[f_name] = open(f"C:/Users/user/Desktop/homework/IR/{part}_postings/{f_name}", "rb")
             f = self._open_files[f_name]
             f.seek(offset)
             n_read = min(n_bytes, BLOCK_SIZE - offset)
@@ -161,21 +162,27 @@ class InvertedIndex:
         """
         words,PL = [],[]
         filtered_posting_locs = {w : self.posting_locs[w] for w in query}
+
         if all([len(pl) for pl in filtered_posting_locs.values()]) == 0:
             return [],[]
         else:
             with closing(MultiFileReader()) as reader:
                 for w, locs in filtered_posting_locs.items():
-                    posting_list = []
-                    b = reader.read(locs, self.df[w] * TUPLE_SIZE, part)
-                    for i in range(self.df[w]):
-                        doc_id = int.from_bytes(b[i*TUPLE_SIZE:i*TUPLE_SIZE+4], 'big')
-                        tf = int.from_bytes(b[i*TUPLE_SIZE+4:(i+1)*TUPLE_SIZE], 'big')
-                        posting_list.append((doc_id, tf))
-                    words.append(w)
-                    PL.append(posting_list)
-                return words, PL
 
+                    PL.append( self.read_word(w, locs, reader, part))
+                    words.append(w)
+            return words, PL
+
+    def read_word(self,w, locs, reader, part):
+
+        posting_list = []
+        b = reader.read(locs, self.df[w] * TUPLE_SIZE, part)
+        for i in range(self.df[w]):
+            doc_id = int.from_bytes(b[i * TUPLE_SIZE:i * TUPLE_SIZE + 4], 'big')
+            tf = int.from_bytes(b[i * TUPLE_SIZE + 4:(i + 1) * TUPLE_SIZE], 'big')
+            posting_list.append((doc_id, tf))
+
+        return posting_list
     def get_posting_iter(self, index, query, part ):
         """
         This function returning the iterator working with posting list.
@@ -184,6 +191,7 @@ class InvertedIndex:
         ----------
         index: inverted index
         """
+
         words, pls = index.posting_lists_iter(query, part)
         return words, pls
 
