@@ -1,48 +1,17 @@
-import time
-
 from inverted_index_gcp import *
-import datetime
-import json
 from nltk.corpus import stopwords
 import pickle
-import gcsfs
-from collections import defaultdict
 import numpy as np
 import math
-from scipy.sparse import csr_matrix, lil_matrix
 import scipy.sparse
 import scipy.linalg
 from nltk.stem.porter import *
-import time
 
 
 class Data:
     def __init__(self):
-        self.terms_in_train_set = []
         self.stopwords = frozenset(stopwords.words('english'))
-        self.GCSFS = gcsfs.GCSFileSystem()
         self.inverted = InvertedIndex()
-        self.bucket_name = "206224503_ir_hw3"
-
-        # with open("pr_dict.pkl", "rb") as f:
-        #     self.pr_dict = pickle.load(f)
-        with open("DL_dict.pkl", "rb") as f:
-            self.DL = pickle.load(f)
-        with open("doc_title_dict.pickle", "rb") as f:
-            self.doc_title_dict = pickle.load(f)
-        with open("docs_norm_dict.pkl", "rb") as f:
-            self.doc_norm_dict = pickle.load(f)
-
-        # TODO return from comment to run on cloud#########
-
-        # with self.GCSFS.open(r"gs://ir_project_utils_files/DL_dict.pkl", "rb") as f:
-        #     self.DL = pickle.load(f)
-        # with self.GCSFS.open(r"gs://ir_project_utils_files/doc_title_dict.pickle", "rb") as f:
-        #     self.doc_title_dict = pickle.load(f)
-        # with self.GCSFS.open(r"gs://ir_project_utils_files/docs_norm_dict.pkl", "rb") as f:
-        #     self.doc_norm_dict = pickle.load(f)
-
-        ######### return from comment to run on cloud ###############
 
         english_stopwords = frozenset(stopwords.words('english'))
         corpus_stopwords = ["category", "references", "also", "external", "links",
@@ -56,20 +25,24 @@ class Data:
 
 
 class BackEnd:
-    def __init__(self, Data, part: str):  # part = body/title/anchor
+    def __init__(self, Data, part: str, pr, pw, dl, doc_title, docs_norm):  # part = body/title/anchor
         self.part = part
         self.Data = Data
+        self.pr_dict = pr
+        self.pw_dict = pw
+        self.DL = dl
+        self.doc_title_dict = doc_title
+        self.doc_norm_dict = docs_norm
         self.read_index()
 
     def get_pr(self, wiki_ids):
         wiki_ids_str = list(map(str, wiki_ids))
-        return [(wid, self.Data.pr_dict[wid]) for wid in wiki_ids_str if wid in self.Data.pr_dict]
+        return [(wid, self.pr_dict[wid]) for wid in wiki_ids_str if wid in self.pr_dict]
 
     def read_index(self):
-        # with self.Data.GCSFS.open(f"gs://ir_project_utils_files/{self.part}_index.pkl", 'rb') as f:
-        #     data = pickle.load(f)
-        # TODO return to normal
-        with open(f"{self.part}_index.pkl", 'rb') as f:
+
+        with open(f"IR/{self.part}_index.pkl", 'rb') as f:
+        # with open(f"{self.part}_index.pkl", 'rb') as f:
             data = pickle.load(f)
         self.Data.inverted.df = data.df
         self.Data.inverted.term_total = data.posting_locs
@@ -135,7 +108,7 @@ class BackEnd:
             if token in index.term_total.keys():  # avoid terms that do not appear in the index.
                 tf = counter[token]  # term frequency divded by the length of the query
                 df = index.df[token]
-                idf = math.log((len(self.Data.DL)) / (df + epsilon), 10)  # smoothing
+                idf = math.log((len(self.DL)) / (df + epsilon), 10)  # smoothing
                 ind = term_vector.index(token)
                 Q[ind] = tf * idf
         return Q
@@ -169,7 +142,7 @@ class BackEnd:
             if term in words:
 
                 list_of_doc = pls[words.index(term)]
-                normalized_tfidf = [(doc_id, freq * math.log(len(self.Data.DL) / index.df[term], 10))
+                normalized_tfidf = [(doc_id, freq * math.log(len(self.DL) / index.df[term], 10))
                                     for doc_id, freq in list_of_doc]
 
                 # create the doc_id array and score array
@@ -218,7 +191,7 @@ class BackEnd:
                                                                                          pls)
 
         total_vocab_size = len(index.term_total)
-        max_doc_id = np.max(candidate_id)  # TODO change to doc_id dictionary
+        max_doc_id = np.max(candidate_id)
         if max_doc_id is None:
             return []
         D = scipy.sparse.coo_matrix((candidate_score, (candidate_id, term_id)),
@@ -236,7 +209,7 @@ class BackEnd:
         query_norm = scipy.linalg.norm(Q)
         docs = dot.nonzero()[0]
         dot = dot / query_norm
-        scores = [(doc_id, dot[doc_id]/ ( self.Data.doc_norm_dict[doc_id])) for doc_id in docs]
+        scores = [(doc_id, dot[doc_id] / ( self.doc_norm_dict[doc_id])) for doc_id in docs]
 
         return scores
 
@@ -259,17 +232,16 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         for query_id, tokens in queries_to_search.items():
-            t1 = time.time()
             words, pls = self.Data.inverted.get_posting_iter(index, tokens, self.part)
-            print(f"time to take the PL {time.time() - t1}")
             if len(pls[0]) == 0:
                 return []
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             vect_query = self.generate_query_tfidf_vector(tokens, index)
             scores = self.score(D, vect_query)
             sorted_result = sorted(scores, key=lambda x: x[1], reverse=True)
-            retrieved_docs = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in
+            retrieved_docs = [(str(doc_id), str(score)) for doc_id, score in
                               sorted_result]
+
             return self.get_top_n(retrieved_docs, n)
 
     def get_titles(self, query_to_search, index):
@@ -282,9 +254,9 @@ class BackEnd:
                                                                                             words, pls)
         title_rank_dict = Counter(document_ids)
 
-        sorted_results = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in
+        sorted_results = [(str(doc_id), str(score)) for doc_id, score in
                           title_rank_dict.most_common()
-                          if doc_id in self.Data.doc_title_dict]
+                          if doc_id in self.doc_title_dict]
 
         return sorted_results
 
@@ -297,6 +269,26 @@ class BackEnd:
         return self.get_titles(tokenized_query, self.Data.inverted)
 
 
+    def add_pr_pw_score(self, candidates,weight):
+        """
+        adds weighted PageView and PageRank scores to the candidates
+        ----------
+        parameters
+        candidates : array : of document id, score
+        weight : tuple (PR_weight, PW_weight)
+        ----------
+        return:
+        res : list
+            contains tuple of (doc_id, score+pr+pw)
+        """
+
+        res = [(doc_id , weight[0] * float(self.pr_dict[doc_id]) + weight[1] * float(self.pr_dict[doc_id]) + score)
+               for doc_id, score in candidates if doc_id in self.pr_dict]
+        return res
+
+    def pw_score(self, candidates):
+
+        return [(doc_id, self.pw_dict[doc_id]) for doc_id in candidates]
 def map_at_40(retrieved_documents, relevant_documents):
 
     retrieved_documents = retrieved_documents[:40]
@@ -310,143 +302,3 @@ def map_at_40(retrieved_documents, relevant_documents):
     if num_relevant == 0:
         return 0.0
     return precision_sum / min(num_relevant, 40)
-
-
-def main():
-    import time
-    save = False
-    data_body = Data()
-    data_title = Data()
-    data_anchor = Data()
-    body_operator = BackEnd(data_body, "body")
-    title_operator = BackEnd(data_title, "title")
-    anchor_operator = BackEnd(data_anchor, "anchor")
-    # body_weight = [0.75,1,1.2]
-    # title_weight = [80,180]
-    # anchore_weight = [110,120,130]
-    # wg = [[1.2,130,130] for AW in anchore_weight]
-    weights = [1.2,130,130]
-    test_in_body = np.empty(shape=30,dtype=np.int16)
-    test_in_title = np.empty(shape=30,dtype=np.int16)
-    test_in_anchor = np.empty(shape=30,dtype=np.int16)
-    processing_time = np.empty(shape=30,dtype=np.float32)
-    size = [-1]#,25000,15000,10000,5000]
-    for sz in size:
-        # for dataframe
-        name = f"size{sz}"
-        prec_at_40 = np.empty(shape=30, dtype=np.float32)
-        query_time = np.empty(shape=30, dtype=np.float32)
-
-        with open("queries_train.json", 'r') as f:
-            queries = json.load(f)
-        acc_scores = []
-        timelist = []
-        TOTAL_TIME = time.time()
-        for Q_id, (query, real) in enumerate(queries.items()):
-
-            print(f"query {Q_id}/{30}: {query}")
-            t1 = time.time()
-            # weights :body, title , anchor
-
-            ######query#########
-            # body
-            docs = {}
-
-            res_body = body_operator.activate_search(query)
-            t2 = time.time()
-            print(f"time for body{t2 - t1}")
-
-            for doc in res_body:
-                docs[doc[0]] = weights[0] * float(doc[1])
-            t3 = time.time() - t1
-            processing_time[Q_id] = t3
-            print(f"time to orginize reuslts after body: {t3}")
-
-            # title
-            res_title = title_operator.activate_title_search(query)
-            t4 = time.time()
-            print(f"time to run title search:{t4 -t1}")
-            for doc in res_title:
-                if doc[0] in docs:
-                    docs[doc[0]] += weights[1] * float(doc[1])
-                else:
-                    docs[doc[0]] = weights[1] * float(doc[1])
-
-
-            t5 = time.time() - t1
-            processing_time[Q_id] += t5
-            print(f"time to orginize results from title search:{t5} ")
-
-            # anchor
-            res_anchor = anchor_operator.activate_title_search(query)
-            t6 = time.time() - t1
-            print(f"time to run anchor search:{t6} ")
-            for doc in res_anchor:
-                if doc[0] in docs:
-                    docs[doc[0]] += weights[2] * float(doc[1])
-                else:
-                    docs[doc[0]] = weights[2] * float(doc[1])
-
-            # test_in_title[Q_id] = len(set(res_title).intersection(set(real)))
-            # test_in_anchor[Q_id] = len(set(res_anchor).intersection(set(real)))
-            # real_set = set(real)
-            # in_body = {int(body[0]) for body in res_body}
-            # in_title = {int(title[0]) for title in res_title}
-            # in_anchor = {int(anchor[0]) for anchor in res_anchor}
-            # test_in_body[Q_id] = len(in_body.intersection(real_set))
-            # test_in_title[Q_id] = len(in_title.intersection(real_set))
-            # test_in_anchor[Q_id] = len(in_anchor.intersection(real_set))
-
-            # make a list from the docs
-            docs = [(doc_id, score) for doc_id, score in docs.items()]
-            docs = sorted(docs, key=lambda x: x[1], reverse=True)
-
-            t7 = time.time() - t1
-            processing_time[Q_id] += t7
-            print(f"time to orginize results from title search:{t7} ")
-
-            # intersections
-            # title_body = in_title.intersection(in_body)
-            # title_anchor = in_title.intersection(in_anchor)
-            # anchor_body = in_anchor.intersection(in_body)
-            #
-            # in_half = title_body.union(title_anchor).union(anchor_body)
-            # in_all = title_body.intersection(title_anchor)
-
-            res = docs[:40]
-            ######query#########
-            t2 = time.time() - t1
-            timelist.append(t2)
-            TOTAL_TIME += t2
-            map40 = map_at_40(res, real)
-            prec_at_40[Q_id] = map40
-            query_time[Q_id] = t2
-
-            print(f"score: {map40}")
-            acc_scores.append(map40)
-            print(f"    Time:{t2}\n ")  # Precision:{len(inters)/len(result)}\n    Right Docs:{inters}")
-        print(f"\n{'*' * 20}\nMAP@10: {np.mean(acc_scores)}\nTOTAL TIME: {TOTAL_TIME}\n mean time: {np.mean(timelist)}")
-
-
-
-        if not save:
-            return
-
-        # save to csv
-        data = {'query': list(queries.keys()),
-                'time': query_time,
-                'process_time': processing_time,
-                "precison_at_40": prec_at_40,
-                # "real_docs_in_body": test_in_body,
-                # "real_docs_in_title": test_in_title,
-                # "real_docs_in_anchor": test_in_anchor
-                }
-        Q_DF = pd.DataFrame(data)
-        Q_DF.to_csv(name+'.csv',index= True)
-        search_df = pd.DataFrame({"MAP40" : [np.mean(acc_scores)], "time" : [np.mean(timelist)]})
-        name = name + 'total.csv'
-        search_df.to_csv(name,index= True)
-
-
-if __name__ == '__main__':
-    main()
