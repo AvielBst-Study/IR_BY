@@ -238,7 +238,7 @@ class BackEnd:
         query_norm = scipy.linalg.norm(Q)
         docs = dot.nonzero()[0]
         dot = dot / query_norm
-        scores = [(doc_id, dot[doc_id]/ ( self.Data.doc_norm_dict[doc_id])) for doc_id in docs]
+        scores = [(doc_id, dot[doc_id] / ( self.Data.doc_norm_dict[doc_id])) for doc_id in docs]
 
         return scores
 
@@ -261,17 +261,19 @@ class BackEnd:
                                                                 value: list of pairs in the following format:(doc_id, score).
         """
         for query_id, tokens in queries_to_search.items():
-            t1 = time.time()
+            # t1 = time.time()
             words, pls = self.Data.inverted.get_posting_iter(index, tokens, self.part)
-            print(f"time to take the PL {time.time() - t1}")
+            # print(f"time to take the PL {time.time() - t1}")
             if len(pls[0]) == 0:
                 return []
             D = self.generate_document_tfidf_matrix(tokens, index, words, pls)
             vect_query = self.generate_query_tfidf_vector(tokens, index)
             scores = self.score(D, vect_query)
             sorted_result = sorted(scores, key=lambda x: x[1], reverse=True)
-            retrieved_docs = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in
+            retrieved_docs = [(str(doc_id), str(score)) for doc_id, score in
                               sorted_result]
+            # retrieved_docs = [(doc_id, score) for doc_id, score in
+            #                   sorted_result]
             return self.get_top_n(retrieved_docs, n)
 
     def get_titles(self, query_to_search, index):
@@ -284,9 +286,11 @@ class BackEnd:
                                                                                             words, pls)
         title_rank_dict = Counter(document_ids)
 
-        sorted_results = [(str(doc_id), str(score), self.Data.doc_title_dict[doc_id]) for doc_id, score in
+        sorted_results = [(str(doc_id), str(score)) for doc_id, score in
                           title_rank_dict.most_common()
                           if doc_id in self.Data.doc_title_dict]
+        # sorted_results = [(doc_id, score) for doc_id, score in title_rank_dict.most_common()
+        #                   if doc_id in self.Data.doc_title_dict]
 
         return sorted_results
 

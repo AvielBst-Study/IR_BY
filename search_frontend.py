@@ -40,10 +40,38 @@ def search():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
+    weights = [1.2, 130, 130]
     res_body = body_operator.activate_search(query)
     res_title = title_operator.activate_title_search(query)
     res_anchor = anchor_operator.activate_title_search(query)
-    res = set(res_title+res_body+res_anchor)
+
+    # add the scores
+    docs = {}
+    # body scores
+    for doc in res_body:
+        docs[doc[0]] = weights[0] * float(doc[1])
+    # title scores
+    for doc in res_title:
+        if doc[0] in docs:
+            docs[doc[0]] += weights[1] * float(doc[1])
+        else:
+            docs[doc[0]] = weights[1] * float(doc[1])
+
+    # anchor scores
+    for doc in res_anchor:
+        if doc[0] in docs:
+            docs[doc[0]] += weights[2] * float(doc[1])
+        else:
+            docs[doc[0]] = weights[2] * float(doc[1])
+
+    docs = [(doc_id, score) for doc_id, score in docs.items()]
+    docs = sorted(docs, key=lambda x: x[1], reverse=True)
+
+    # change get document title from id
+
+    res = docs[:40]
+    res = [(doc_id,title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id,_ in res]
+
     if len(res) < 5:
         return res_body[:20]
     # END SOLUTION
@@ -72,6 +100,7 @@ def search_body():
         return jsonify(res)
     # BEGIN SOLUTION
     res = body_operator.activate_search(query, n=10)
+    res = [(doc_id, title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
     # END SOLUTION
     return jsonify(res)
 
@@ -103,6 +132,7 @@ def search_title():
         return jsonify(res)
     # BEGIN SOLUTION
     res = title_operator.activate_title_search(query)
+    res = [(doc_id, title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
     # END SOLUTION
     return jsonify(res)
 
@@ -114,7 +144,7 @@ def search_anchor():
         NUMBER OF QUERY WORDS that appear in anchor text linking to the page.
         DO NOT use stemming. DO USE the staff-provided tokenizer from Assignment
         3 (GCP part) to do the tokenization and remove stopwords. For example,
-        a document with a anchor text that matches two distinct query words will
+        a document with an anchor text that matches two distinct query words will
         be ranked before a document with anchor text that matches only one
         distinct query word, regardless of the number of times the term appeared
         in the anchor text (or query).
@@ -134,6 +164,7 @@ def search_anchor():
         return jsonify(res)
     # BEGIN SOLUTION
     res = anchor_operator.activate_title_search(query)
+    res = [(doc_id, title_operator.Data.doc_title_dict[int(doc_id)]) for doc_id, _ in res]
     # END SOLUTION
     return jsonify(res)
 
@@ -152,7 +183,7 @@ def get_pagerank():
     Returns:
     --------
         list of floats:
-          list of PageRank scores that correrspond to the provided article IDs.
+          list of PageRank scores that correspond to the provided article IDs.
     """
     res = []
     wiki_ids = request.get_json()
@@ -180,7 +211,7 @@ def get_pageview():
     Returns:
     --------
         list of ints:
-          list of page view numbers from August 2021 that correrspond to the
+          list of page view numbers from August 2021 that correspond to the
           provided list article IDs.
 
           [13, 2222, 15]
